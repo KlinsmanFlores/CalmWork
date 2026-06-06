@@ -305,19 +305,8 @@ class _LoginScreenState extends State<LoginScreen> {
                         ],
                       ),
                       const SizedBox(height: 24),
-                      // Register (Prototype Mode)
-                      TextButton(
-                        onPressed: _isLoading ? null : _signUp,
-                        child: RichText(
-                          text: const TextSpan(
-                            style: TextStyle(color: AppColors.textPrimary, fontSize: 13),
-                            children: [
-                              TextSpan(text: '¿Modo Prototipo? '),
-                              TextSpan(text: 'Regístrate aquí', style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.primary)),
-                            ],
-                          ),
-                        ),
-                      ),
+                      const SizedBox(height: 24),
+                      // Solo iniciar sesión, no hay registro
                     ],
                   ),
                 ),
