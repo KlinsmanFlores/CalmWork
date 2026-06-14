@@ -3,9 +3,7 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'initial_survey.dart';
 import 'dart:convert';
-import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
-import 'dart:io' show Platform;
 
 Future<String> submitAnonymousReport(String moduleTitle, Map<String, dynamic> answers) async {
   try {
@@ -15,7 +13,7 @@ Future<String> submitAnonymousReport(String moduleTitle, Map<String, dynamic> an
     );
 
     // 1. Get or create module
-    final moduleRes = await supabase.schema('calmwork').from('modules').select('id').eq('title', moduleTitle).maybeSingle();
+    final moduleRes = await supabase.schema('calmwork').from('modules').select('id').eq('title', moduleTitle).limit(1).maybeSingle();
     String moduleId;
     if (moduleRes == null) {
       final newModule = await supabase.schema('calmwork').from('modules').insert({'title': moduleTitle, 'icon_name': 'AlertTriangle', 'color_hex': '#e2e8f0'}).select('id').single();
@@ -28,7 +26,7 @@ Future<String> submitAnonymousReport(String moduleTitle, Map<String, dynamic> an
     final newReport = await supabase.schema('calmwork').from('reports').insert({'module_id': moduleId, 'status': 'new'}).select('id').single();
 
     // 3. Get or create question
-    final questionRes = await supabase.schema('calmwork').from('questions').select('id').eq('module_id', moduleId).eq('question_type', 'text').maybeSingle();
+    final questionRes = await supabase.schema('calmwork').from('questions').select('id').eq('module_id', moduleId).eq('question_type', 'text').limit(1).maybeSingle();
     String questionId;
     if (questionRes == null) {
       final newQuestion = await supabase.schema('calmwork').from('questions').insert({'module_id': moduleId, 'question_text': 'Respuestas Consolidadas del Formulario', 'question_type': 'text'}).select('id').single();
@@ -404,6 +402,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       TextField(
                         controller: _emailController,
                         style: const TextStyle(color: Colors.white),
+                        cursorColor: Colors.white,
                         keyboardType: TextInputType.emailAddress,
                         decoration: InputDecoration(
                           hintText: 'Correo electrónico',
@@ -421,6 +420,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         controller: _passwordController,
                         obscureText: _obscureText,
                         style: const TextStyle(color: Colors.white),
+                        cursorColor: Colors.white,
                         decoration: InputDecoration(
                           hintText: 'Contraseña',
                           hintStyle: const TextStyle(color: Colors.white70),
