@@ -1,6 +1,152 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'initial_survey.dart';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:io' show Platform;
+
+Future<String> submitAnonymousReport(String moduleTitle, Map<String, dynamic> answers) async {
+  try {
+    final supabase = SupabaseClient(
+      dotenv.env['SUPABASE_URL'] ?? '',
+      dotenv.env['SUPABASE_ANON_KEY'] ?? '',
+    );
+
+    // 1. Get or create module
+    final moduleRes = await supabase.schema('calmwork').from('modules').select('id').eq('title', moduleTitle).maybeSingle();
+    String moduleId;
+    if (moduleRes == null) {
+      final newModule = await supabase.schema('calmwork').from('modules').insert({'title': moduleTitle, 'icon_name': 'AlertTriangle', 'color_hex': '#e2e8f0'}).select('id').single();
+      moduleId = newModule['id'];
+    } else {
+      moduleId = moduleRes['id'];
+    }
+
+    // 2. Create report
+    final newReport = await supabase.schema('calmwork').from('reports').insert({'module_id': moduleId, 'status': 'new'}).select('id').single();
+
+    // 3. Get or create question
+    final questionRes = await supabase.schema('calmwork').from('questions').select('id').eq('module_id', moduleId).eq('question_type', 'text').maybeSingle();
+    String questionId;
+    if (questionRes == null) {
+      final newQuestion = await supabase.schema('calmwork').from('questions').insert({'module_id': moduleId, 'question_text': 'Respuestas Consolidadas del Formulario', 'question_type': 'text'}).select('id').single();
+      questionId = newQuestion['id'];
+    } else {
+      questionId = questionRes['id'];
+    }
+
+    // 4. Save answers
+    await supabase.schema('calmwork').from('report_answers').insert({
+      'report_id': newReport['id'],
+      'question_id': questionId,
+      'selected_options': answers
+    });
+
+    // 5. Save local history
+    final prefs = await SharedPreferences.getInstance();
+    final user = Supabase.instance.client.auth.currentUser;
+    final userId = user?.id ?? 'anonymous';
+    final historyKey = 'history_$userId';
+    
+    List<String> historyList = prefs.getStringList(historyKey) ?? [];
+    
+    // Add new report to history
+    final reportEntry = {
+      'id': newReport['id'],
+      'module': moduleTitle,
+      'date': DateTime.now().toIso8601String(),
+    };
+    
+    historyList.insert(0, jsonEncode(reportEntry));
+    await prefs.setStringList(historyKey, historyList);
+
+    return 'ok';
+  } catch (e) {
+    debugPrint('Error submitting report to Supabase: $e');
+    return e.toString();
+  }
+}
+
+List<String> globalCompanyAreas = [
+  'Administración',
+  'Finanzas',
+  'Legal',
+  'Marketing',
+  'Operaciones',
+  'Recursos Humanos',
+  'Tecnología (TI)',
+  'Ventas'
+];
+
+Future<void> fetchCompanyAreas() async {
+  try {
+    final supabase = SupabaseClient(
+      dotenv.env['SUPABASE_URL'] ?? '',
+      dotenv.env['SUPABASE_ANON_KEY'] ?? '',
+    );
+    final res = await supabase.schema('calmwork').from('employees').select('department');
+    final Set<String> areas = Set.from(globalCompanyAreas);
+    for (var row in res) {
+      if (row['department'] != null && row['department'].toString().trim().isNotEmpty) {
+        areas.add(row['department'].toString().trim());
+      }
+    }
+    final list = areas.toList();
+    list.sort();
+    globalCompanyAreas = list;
+  } catch (e) {
+    debugPrint('Error fetching areas: $e');
+  }
+}
+
+void showSuccessDialog(BuildContext context) {
+  showDialog(
+    context: context,
+    barrierDismissible: false,
+    builder: (BuildContext ctx) {
+      return Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        child: Padding(
+          padding: const EdgeInsets.all(32.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TweenAnimationBuilder<double>(
+                tween: Tween(begin: 0.0, end: 1.0),
+                duration: const Duration(milliseconds: 600),
+                curve: Curves.elasticOut,
+                builder: (context, value, child) {
+                  return Transform.scale(
+                    scale: value,
+                    child: const Icon(Icons.check_circle, color: AppColors.primary, size: 80),
+                  );
+                },
+              ),
+              const SizedBox(height: 24),
+              const Text('¡Reporte Enviado!', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
+              const SizedBox(height: 12),
+              const Text('Gracias por tu tiempo. Tu bienestar es nuestra prioridad y tus respuestas son 100% confidenciales.', textAlign: TextAlign.center, style: TextStyle(fontSize: 14, color: AppColors.textSecondary, height: 1.4)),
+              const SizedBox(height: 32),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)), padding: const EdgeInsets.symmetric(vertical: 14)),
+                  onPressed: () {
+                    Navigator.pop(ctx);
+                    Navigator.pop(context);
+                  },
+                  child: const Text('Entendido', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    },
+  );
+}
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -13,6 +159,9 @@ Future<void> main() async {
     url: dotenv.env['SUPABASE_URL'] ?? '',
     anonKey: dotenv.env['SUPABASE_ANON_KEY'] ?? '',
   );
+  
+  // 3. Fetch areas
+  fetchCompanyAreas();
 
   runApp(const SicoApp());
 }
@@ -147,12 +296,33 @@ class _LoginScreenState extends State<LoginScreen> {
     if (_emailController.text.isEmpty || _passwordController.text.isEmpty) return;
     setState(() => _isLoading = true);
     try {
-      await Supabase.instance.client.auth.signInWithPassword(
+      final res = await Supabase.instance.client.auth.signInWithPassword(
         email: _emailController.text.trim(),
         password: _passwordController.text,
       );
-      if (mounted) {
-        Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const MainNavigator()));
+      
+      final user = res.user;
+      if (user != null) {
+        // Consultar has_completed_initial_survey
+        final employeeRes = await Supabase.instance.client
+            .schema('calmwork')
+            .from('employees')
+            .select('has_completed_initial_survey')
+            .eq('id', user.id)
+            .maybeSingle();
+            
+        bool hasCompleted = false;
+        if (employeeRes != null && employeeRes['has_completed_initial_survey'] == true) {
+          hasCompleted = true;
+        }
+
+        if (mounted) {
+          if (hasCompleted) {
+            Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const MainNavigator()));
+          } else {
+            Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const InitialSurveyScreen()));
+          }
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -356,7 +526,7 @@ class _MainNavigatorState extends State<MainNavigator> {
   
   List<Widget> get _screens => [
     HomeScreen(onChatbotPressed: () => setState(() => _currentIndex = 2)),
-    const FormsScreen(),
+    const HistoryScreen(),
     const MockChatScreen(),
     const ProfileScreen(),
   ];
@@ -379,7 +549,7 @@ class _MainNavigatorState extends State<MainNavigator> {
           elevation: 0,
           items: const [
             BottomNavigationBarItem(icon: Icon(Icons.home_outlined), activeIcon: Icon(Icons.home), label: 'Inicio'),
-            BottomNavigationBarItem(icon: Icon(Icons.assignment_outlined), activeIcon: Icon(Icons.assignment), label: 'Cuestionarios'),
+            BottomNavigationBarItem(icon: Icon(Icons.history_outlined), activeIcon: Icon(Icons.history), label: 'Historial'),
             BottomNavigationBarItem(icon: Icon(Icons.chat_bubble_outline), activeIcon: Icon(Icons.chat_bubble), label: 'Asistente'),
             BottomNavigationBarItem(icon: Icon(Icons.person_outline), activeIcon: Icon(Icons.person), label: 'Perfil'),
           ],
@@ -524,58 +694,98 @@ class HomeScreen extends StatelessWidget {
   }
 }
 
-// --- FORMS SCREEN ---
-class FormsScreen extends StatelessWidget {
-  const FormsScreen({super.key});
+// --- HISTORY SCREEN ---
+class HistoryScreen extends StatefulWidget {
+  const HistoryScreen({super.key});
+
+  @override
+  State<HistoryScreen> createState() => _HistoryScreenState();
+}
+
+class _HistoryScreenState extends State<HistoryScreen> {
+  List<Map<String, dynamic>> _history = [];
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadHistory();
+  }
+
+  Future<void> _loadHistory() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final user = Supabase.instance.client.auth.currentUser;
+      final userId = user?.id ?? 'anonymous';
+      final historyKey = 'history_$userId';
+      
+      final historyList = prefs.getStringList(historyKey) ?? [];
+      setState(() {
+        _history = historyList.map((e) => jsonDecode(e) as Map<String, dynamic>).toList();
+      });
+    } catch (e) {
+      debugPrint('Error loading history: $e');
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Cuestionarios', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold)), backgroundColor: Colors.white, elevation: 0),
-      body: ListView(
-        padding: const EdgeInsets.all(20),
-        children: [
-          const Text('Pendientes de Evaluación', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
-          const SizedBox(height: 16),
-          _buildFormCard('Clima Laboral Q3', '5 min', Icons.timer_outlined, true),
-          const SizedBox(height: 16),
-          _buildFormCard('Evaluación de Carga', '10 min', Icons.timer_outlined, true),
-          const SizedBox(height: 32),
-          const Text('Completados recientemente', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
-          const SizedBox(height: 16),
-          _buildFormCard('Feedback sobre liderazgo', 'Completado', Icons.check_circle_outline, false),
-        ],
-      ),
-    );
-  }
+      backgroundColor: AppColors.background,
+      appBar: AppBar(title: const Text('Mis Reportes', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold)), backgroundColor: Colors.white, elevation: 0),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator(color: AppColors.primary))
+          : _history.isEmpty
+              ? const Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(32.0),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.history_toggle_off, size: 80, color: Colors.black12),
+                        SizedBox(height: 16),
+                        Text('No has enviado ningún reporte', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
+                        SizedBox(height: 8),
+                        Text('Tus reportes enviados aparecerán aquí de forma privada.', textAlign: TextAlign.center, style: TextStyle(color: AppColors.textSecondary)),
+                      ],
+                    ),
+                  ),
+                )
+              : ListView.builder(
+                  padding: const EdgeInsets.all(16),
+                  itemCount: _history.length,
+                  itemBuilder: (context, index) {
+                    final report = _history[index];
+                    final dateStr = report['date'] as String;
+                    final date = DateTime.tryParse(dateStr);
+                    final formattedDate = date != null ? '${date.day}/${date.month}/${date.year} ${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}' : dateStr;
 
-  Widget _buildFormCard(String title, String time, IconData icon, bool pending) {
-    return Container(
-      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10, offset: const Offset(0, 4))]),
-      child: ListTile(
-        contentPadding: const EdgeInsets.all(16),
-        leading: Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(color: pending ? AppColors.background : Colors.green.shade50, borderRadius: BorderRadius.circular(12)),
-          child: Icon(Icons.assignment, color: pending ? AppColors.primary : Colors.green),
-        ),
-        title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
-        subtitle: Padding(
-          padding: const EdgeInsets.only(top: 8.0),
-          child: Row(
-            children: [
-              Icon(icon, size: 16, color: pending ? AppColors.textSecondary : Colors.green),
-              const SizedBox(width: 4),
-              Text(time, style: TextStyle(color: pending ? AppColors.textSecondary : Colors.green)),
-            ],
-          ),
-        ),
-        trailing: pending ? ElevatedButton(
-          onPressed: () {},
-          style: ElevatedButton.styleFrom(backgroundColor: AppColors.primaryLight, foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
-          child: const Text('Iniciar'),
-        ) : null,
-      ),
+                    return Card(
+                      elevation: 2,
+                      margin: const EdgeInsets.only(bottom: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                      child: ListTile(
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                        leading: Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: AppColors.primaryLight.withOpacity(0.2),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: const Icon(Icons.check_circle_outline, color: AppColors.primary),
+                        ),
+                        title: Text(report['module'] ?? 'Reporte', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                        subtitle: Padding(
+                          padding: const EdgeInsets.only(top: 6.0),
+                          child: Text('Enviado el $formattedDate', style: const TextStyle(fontSize: 12)),
+                        ),
+                        trailing: const Icon(Icons.privacy_tip, color: Colors.black26),
+                      ),
+                    );
+                  },
+                ),
     );
   }
 }
@@ -699,80 +909,129 @@ class _MockChatScreenState extends State<MockChatScreen> {
 }
 
 // --- PROFILE SCREEN ---
-class ProfileScreen extends StatelessWidget {
+class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
+
+  @override
+  State<ProfileScreen> createState() => _ProfileScreenState();
+}
+
+class _ProfileScreenState extends State<ProfileScreen> {
+  bool _isLoading = true;
+  String _firstName = '';
+  String _lastName = '';
+  String _email = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUserProfile();
+  }
+
+  Future<void> _loadUserProfile() async {
+    try {
+      final user = Supabase.instance.client.auth.currentUser;
+      if (user != null) {
+        _email = user.email ?? '';
+        final res = await Supabase.instance.client
+            .schema('calmwork')
+            .from('employees')
+            .select('first_name, last_name')
+            .eq('id', user.id)
+            .maybeSingle();
+
+        if (res != null) {
+          _firstName = res['first_name'] ?? '';
+          _lastName = res['last_name'] ?? '';
+        }
+      }
+    } catch (e) {
+      debugPrint('Error loading profile: $e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  String get _initials {
+    if (_firstName.isEmpty && _lastName.isEmpty) return '?';
+    String ini = '';
+    if (_firstName.isNotEmpty) ini += _firstName[0];
+    if (_lastName.isNotEmpty) ini += _lastName[0];
+    return ini.toUpperCase();
+  }
+
+  String get _fullName {
+    if (_firstName.isEmpty && _lastName.isEmpty) return 'Usuario';
+    return '$_firstName $_lastName'.trim();
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Perfil', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold)), backgroundColor: Colors.white, elevation: 0),
-      body: ListView(
-        padding: const EdgeInsets.all(20),
-        children: [
-          const Center(
-            child: CircleAvatar(radius: 50, backgroundColor: AppColors.primaryLight, child: Text('AL', style: TextStyle(fontSize: 32, color: Colors.white, fontWeight: FontWeight.bold))),
-          ),
-          const SizedBox(height: 16),
-          const Center(child: Text('Alex López', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: AppColors.textPrimary))),
-          const Center(child: Text('empleado@empresa.com', style: TextStyle(color: AppColors.textSecondary))),
-          const SizedBox(height: 40),
-          ListTile(
-            leading: const Icon(Icons.settings_outlined, color: AppColors.textPrimary),
-            title: const Text('Configuración', style: TextStyle(fontWeight: FontWeight.bold)),
-            trailing: const Icon(Icons.arrow_forward_ios, size: 16, color: AppColors.textSecondary),
-            onTap: () {},
-          ),
-          const Divider(),
-          ListTile(
-            leading: const Icon(Icons.security_outlined, color: AppColors.textPrimary),
-            title: const Text('Privacidad y Anonimato', style: TextStyle(fontWeight: FontWeight.bold)),
-            trailing: const Icon(Icons.arrow_forward_ios, size: 16, color: AppColors.textSecondary),
-            onTap: () {},
-          ),
-          const Divider(),
-          ListTile(
-            leading: const Icon(Icons.help_outline, color: AppColors.textPrimary),
-            title: const Text('Centro de Ayuda', style: TextStyle(fontWeight: FontWeight.bold)),
-            trailing: const Icon(Icons.arrow_forward_ios, size: 16, color: AppColors.textSecondary),
-            onTap: () {},
-          ),
-          const Divider(),
-          ListTile(
-            leading: const Icon(Icons.cloud_done_outlined, color: AppColors.textPrimary),
-            title: const Text('Probar Conexión Supabase', style: TextStyle(fontWeight: FontWeight.bold)),
-            trailing: const Icon(Icons.arrow_forward_ios, size: 16, color: AppColors.textSecondary),
-            onTap: () async {
-              try {
-                // Si tienes la opción B, debe ser schema('calmwork')
-                // Si luego eliges la Opción A, solo borra .schema('calmwork')
-                final res = await Supabase.instance.client.schema('calmwork').from('modules').select();
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('¡Conexión Exitosa! Módulos encontrados: ${res.length}'), backgroundColor: Colors.green)
-                );
-              } catch (e) {
-                debugPrint('⚠️ ERROR DE SUPABASE: $e');
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Error de conexión: $e'), backgroundColor: Colors.red)
-                );
-              }
-            },
-          ),
-          const Divider(),
-          const SizedBox(height: 24),
-          ListTile(
-            leading: const Icon(Icons.exit_to_app, color: Colors.red),
-            title: const Text('Cerrar Sesión', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
-            onTap: () {
-              Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const LoginScreen()));
-            },
-          ),
-        ],
-      ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator(color: AppColors.primary))
+          : ListView(
+              padding: const EdgeInsets.all(20),
+              children: [
+                Center(
+                  child: CircleAvatar(
+                    radius: 50,
+                    backgroundColor: AppColors.primaryLight,
+                    child: Text(
+                      _initials,
+                      style: const TextStyle(fontSize: 32, color: Colors.white, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Center(child: Text(_fullName, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: AppColors.textPrimary))),
+                Center(child: Text(_email, style: const TextStyle(color: AppColors.textSecondary))),
+                const SizedBox(height: 40),
+                ListTile(
+                  leading: const Icon(Icons.settings_outlined, color: AppColors.textPrimary),
+                  title: const Text('Configuración', style: TextStyle(fontWeight: FontWeight.bold)),
+                  trailing: const Icon(Icons.arrow_forward_ios, size: 16, color: AppColors.textSecondary),
+                  onTap: () {},
+                ),
+                const Divider(),
+                ListTile(
+                  leading: const Icon(Icons.security_outlined, color: AppColors.textPrimary),
+                  title: const Text('Privacidad y Anonimato', style: TextStyle(fontWeight: FontWeight.bold)),
+                  trailing: const Icon(Icons.arrow_forward_ios, size: 16, color: AppColors.textSecondary),
+                  onTap: () {},
+                ),
+                const Divider(),
+                ListTile(
+                  leading: const Icon(Icons.help_outline, color: AppColors.textPrimary),
+                  title: const Text('Centro de Ayuda', style: TextStyle(fontWeight: FontWeight.bold)),
+                  trailing: const Icon(Icons.arrow_forward_ios, size: 16, color: AppColors.textSecondary),
+                  onTap: () {},
+                ),
+                const Divider(),
+                const SizedBox(height: 24),
+                ListTile(
+                  leading: const Icon(Icons.exit_to_app, color: Colors.red),
+                  title: const Text('Cerrar Sesión', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+                  onTap: () {
+                    Supabase.instance.client.auth.signOut();
+                    Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const LoginScreen()));
+                  },
+                ),
+              ],
+            ),
     );
   }
 }
 
 // --- SOBRECARGA SCREEN ---
+
+
+
 class SobrecargaScreen extends StatefulWidget {
   const SobrecargaScreen({super.key});
 
@@ -782,8 +1041,16 @@ class SobrecargaScreen extends StatefulWidget {
 
 class _SobrecargaScreenState extends State<SobrecargaScreen> {
   final PageController _pageController = PageController();
+  final TextEditingController _descController = TextEditingController();
+  bool _isSubmitting = false;
   int _currentPage = 0;
   final int _totalPages = 8;
+  Map<String, dynamic> _responses = {};
+
+  void _record(String q, String a) {
+    setState(() => _responses[q] = a);
+    Future.delayed(const Duration(milliseconds: 300), _nextPage);
+  }
 
   void _nextPage() {
     if (_currentPage < _totalPages - 1) {
@@ -807,13 +1074,25 @@ class _SobrecargaScreenState extends State<SobrecargaScreen> {
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        leading: IconButton(icon: const Icon(Icons.arrow_back, color: AppColors.primary), onPressed: () => Navigator.pop(context)),
-        title: Row(
+        leading: IconButton(icon: const Icon(Icons.arrow_back, color: AppColors.primary), onPressed: () {
+          if (_currentPage > 0) {
+            _pageController.previousPage(duration: const Duration(milliseconds: 400), curve: Curves.easeInOut);
+          } else {
+            Navigator.pop(context);
+          }
+        }),
+        title: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.inventory_2, color: AppColors.primary),
-            const SizedBox(width: 8),
-            Text('Pregunta ${_currentPage + 1} de $_totalPages', style: const TextStyle(color: AppColors.primary, fontSize: 16, fontWeight: FontWeight.bold)),
+            const Text('Módulo: Sobrecarga Laboral', style: TextStyle(color: AppColors.textSecondary, fontSize: 13, fontWeight: FontWeight.normal)),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.inventory_2, color: AppColors.primary, size: 20),
+                const SizedBox(width: 8),
+                Text('Pregunta ${_currentPage + 1} de $_totalPages', style: const TextStyle(color: AppColors.primary, fontSize: 16, fontWeight: FontWeight.bold)),
+              ],
+            ),
           ],
         ),
         centerTitle: true,
@@ -858,113 +1137,160 @@ class _SobrecargaScreenState extends State<SobrecargaScreen> {
     );
   }
 
-  Widget _buildQuestionContainer({required String title, required Widget child}) {
+  Widget _buildQuestionContainer({required String title, String? subtitle, required Widget child, IconData? icon}) {
     return Padding(
-      padding: const EdgeInsets.all(24.0),
+      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(title, textAlign: TextAlign.center, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: AppColors.primary)),
-          const SizedBox(height: 40),
-          child,
+          Container(
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(24),
+              boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 20, offset: const Offset(0, 10))],
+            ),
+            child: Column(
+              children: [
+                if (icon != null) ...[
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: AppColors.primaryLight.withOpacity(0.15),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(icon, size: 40, color: AppColors.primary),
+                  ),
+                  const SizedBox(height: 16),
+                ],
+                Text(title, textAlign: TextAlign.center, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: AppColors.primary)),
+                if (subtitle != null) ...[
+                  const SizedBox(height: 12),
+                  Text(subtitle, textAlign: TextAlign.center, style: const TextStyle(fontSize: 14, color: AppColors.textSecondary, height: 1.4)),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(height: 24),
+          Expanded(child: child),
         ],
       ),
     );
   }
-
   Widget _buildFacesQuestion(String title) {
     return _buildQuestionContainer(
       title: title,
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-        children: [
-          _buildFaceOption(Icons.sentiment_very_satisfied, Colors.green, 'Nunca'),
-          _buildFaceOption(Icons.sentiment_satisfied, Colors.lightGreen, 'Rara vez'),
-          _buildFaceOption(Icons.sentiment_neutral, Colors.amber, 'A veces'),
-          _buildFaceOption(Icons.sentiment_dissatisfied, Colors.orange, 'Frecuente'),
-          _buildFaceOption(Icons.sentiment_very_dissatisfied, Colors.red, 'Siempre'),
-        ],
+      icon: Icons.sentiment_satisfied_alt,
+      child: Center(
+        child: Wrap(
+          alignment: WrapAlignment.center,
+          spacing: 16,
+          runSpacing: 24,
+          children: [
+            _buildFaceOption(Icons.sentiment_very_satisfied, Colors.green, 'Nunca', () => _record(title, 'Nunca')),
+            _buildFaceOption(Icons.sentiment_satisfied, Colors.lightGreen, 'Rara vez', () => _record(title, 'Rara vez')),
+            _buildFaceOption(Icons.sentiment_neutral, Colors.amber, 'A veces', () => _record(title, 'A veces')),
+            _buildFaceOption(Icons.sentiment_dissatisfied, Colors.orange, 'Frecuente', () => _record(title, 'Frecuente')),
+            _buildFaceOption(Icons.sentiment_very_dissatisfied, Colors.red, 'Siempre', () => _record(title, 'Siempre')),
+          ],
+        ),
       ),
     );
   }
-
-  Widget _buildFaceOption(IconData icon, Color color, String label) {
+  Widget _buildFaceOption(IconData icon, Color color, String label, VoidCallback onTap) {
     return GestureDetector(
-      onTap: () {
-        Future.delayed(const Duration(milliseconds: 300), _nextPage);
-      },
+      onTap: onTap,
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          CircleAvatar(radius: 26, backgroundColor: color.withOpacity(0.2), child: Icon(icon, color: color, size: 36)),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.1),
+              shape: BoxShape.circle,
+              border: Border.all(color: color.withOpacity(0.5), width: 2),
+            ),
+            child: Icon(icon, color: color, size: 36)
+          ),
           const SizedBox(height: 8),
-          Text(label, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
+          Text(label, textAlign: TextAlign.center, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
         ],
       ),
     );
   }
-
   Widget _buildClocksQuestion(String title) {
     return _buildQuestionContainer(
       title: title,
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-        children: [
-          _buildFaceOption(Icons.access_time, Colors.green, 'Nunca'),
-          _buildFaceOption(Icons.timelapse, Colors.amber, 'Ocasional'),
-          _buildFaceOption(Icons.history_toggle_off, Colors.orange, 'Frecuente'),
-          _buildFaceOption(Icons.alarm_on, Colors.red, 'Siempre'),
-        ],
+      icon: Icons.access_time_filled,
+      child: Center(
+        child: Wrap(
+          alignment: WrapAlignment.center,
+          spacing: 16,
+          runSpacing: 24,
+          children: [
+            _buildFaceOption(Icons.access_time, Colors.green, 'Nunca', () => _record(title, 'Nunca')),
+            _buildFaceOption(Icons.timelapse, Colors.amber, 'Ocasional', () => _record(title, 'Ocasional')),
+            _buildFaceOption(Icons.history_toggle_off, Colors.orange, 'Frecuente', () => _record(title, 'Frecuente')),
+            _buildFaceOption(Icons.alarm_on, Colors.red, 'Siempre', () => _record(title, 'Siempre')),
+          ],
+        ),
       ),
     );
   }
-
   Widget _buildBinaryQuestion(String title) {
     return _buildQuestionContainer(
       title: title,
       child: Row(
         children: [
-          Expanded(child: _buildBigButton('Sí', Colors.green)),
+          Expanded(child: _buildBigButton('Sí', Colors.green, () => _record(title, 'Sí'))),
           const SizedBox(width: 16),
-          Expanded(child: _buildBigButton('No', Colors.red)),
+          Expanded(child: _buildBigButton('No', Colors.red, () => _record(title, 'No'))),
         ],
       ),
     );
   }
 
-  Widget _buildBigButton(String label, Color color) {
-    return InkWell(
-      onTap: () {
-        Future.delayed(const Duration(milliseconds: 300), _nextPage);
-      },
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 24),
-        decoration: BoxDecoration(color: Colors.white, border: Border.all(color: color, width: 2), borderRadius: BorderRadius.circular(16)),
-        child: Center(child: Text(label, style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: color))),
+  Widget _buildBigButton(String label, Color color, VoidCallback onTap, {IconData? icon}) {
+    return ElevatedButton(
+      onPressed: onTap,
+      style: ElevatedButton.styleFrom(
+        backgroundColor: Colors.white,
+        foregroundColor: color,
+        elevation: 2,
+        shadowColor: color.withOpacity(0.2),
+        padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: color.withOpacity(0.3), width: 2)),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          if (icon != null) ...[Icon(icon, size: 28), const SizedBox(width: 12)],
+          Flexible(child: Text(label, textAlign: TextAlign.center, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: color))),
+        ],
       ),
     );
   }
-
   Widget _buildLevelsQuestion(String title) {
     return _buildQuestionContainer(
       title: title,
       child: Column(
         children: [
-          _buildLevelButton('Bajo', Colors.green),
+          _buildLevelButton('Bajo', Colors.green, () => _record(title, 'Bajo')),
           const SizedBox(height: 12),
-          _buildLevelButton('Medio', Colors.amber),
+          _buildLevelButton('Medio', Colors.amber, () => _record(title, 'Medio')),
           const SizedBox(height: 12),
-          _buildLevelButton('Alto', Colors.orange),
+          _buildLevelButton('Alto', Colors.orange, () => _record(title, 'Alto')),
           const SizedBox(height: 12),
-          _buildLevelButton('Crítico', Colors.red),
+          _buildLevelButton('Crítico', Colors.red, () => _record(title, 'Crítico')),
         ],
       ),
     );
   }
 
-  Widget _buildLevelButton(String label, Color color) {
+  Widget _buildLevelButton(String label, Color color, VoidCallback onTap) {
     return InkWell(
-      onTap: () => Future.delayed(const Duration(milliseconds: 300), _nextPage),
+      onTap: onTap,
       child: Container(
         width: double.infinity,
         padding: const EdgeInsets.symmetric(vertical: 16),
@@ -984,8 +1310,8 @@ class _SobrecargaScreenState extends State<SobrecargaScreen> {
           const SizedBox(height: 8),
           DropdownButtonFormField<String>(
             decoration: InputDecoration(border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)), filled: true, fillColor: Colors.white),
-            items: const [DropdownMenuItem(value: 'Ventas', child: Text('Ventas')), DropdownMenuItem(value: 'IT', child: Text('IT'))],
-            onChanged: (val) {},
+            items: globalCompanyAreas.map((a) => DropdownMenuItem(value: a, child: Text(a))).toList(),
+            onChanged: (val) { if(val!=null) setState(() => _responses['Área'] = val); },
             hint: const Text('Seleccionar área'),
           ),
           const SizedBox(height: 24),
@@ -993,13 +1319,13 @@ class _SobrecargaScreenState extends State<SobrecargaScreen> {
           const SizedBox(height: 8),
           DropdownButtonFormField<String>(
             decoration: InputDecoration(border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)), filled: true, fillColor: Colors.white),
-            items: const [DropdownMenuItem(value: '1', child: Text('Menos de 1 año')), DropdownMenuItem(value: '2', child: Text('1 a 3 años'))],
-            onChanged: (val) {},
+            items: const [DropdownMenuItem(value: '<1', child: Text('Menos de 1 año')), DropdownMenuItem(value: '1-3', child: Text('1 a 3 años')), DropdownMenuItem(value: '>3', child: Text('Más de 3 años'))],
+            onChanged: (val) { if(val!=null) setState(() => _responses['Antigüedad'] = val); },
             hint: const Text('Seleccionar'),
           ),
           const SizedBox(height: 32),
           ElevatedButton(
-            onPressed: _nextPage,
+            onPressed: (_responses['Área'] == null || _responses['Antigüedad'] == null) ? null : _nextPage,
             style: ElevatedButton.styleFrom(backgroundColor: AppColors.primaryLight, padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
             child: const Text('Siguiente', style: TextStyle(fontSize: 18, color: Colors.white)),
           )
@@ -1018,6 +1344,8 @@ class _SobrecargaScreenState extends State<SobrecargaScreen> {
             const Text('Cuéntanos qué está ocurriendo. Describe brevemente la situación que consideras que está generando sobrecarga laboral.', style: TextStyle(color: AppColors.textSecondary)),
             const SizedBox(height: 16),
             TextField(
+              controller: _descController,
+              onChanged: (_) => setState((){}),
               maxLines: 5,
               maxLength: 1000,
               decoration: InputDecoration(
@@ -1027,16 +1355,33 @@ class _SobrecargaScreenState extends State<SobrecargaScreen> {
                 fillColor: Colors.white,
               ),
             ),
-            const SizedBox(height: 16),
-            ElevatedButton.icon(
-              onPressed: () {
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Reporte enviado correctamente. ¡Gracias!')));
-              },
-              icon: const Icon(Icons.send, color: Colors.white),
-              label: const Text('Enviar reporte', style: TextStyle(fontSize: 18, color: Colors.white)),
-              style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary, padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
-            )
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: (_isSubmitting || _descController.text.trim().isEmpty) ? null : () async {
+                  setState(() => _isSubmitting = true);
+                  _responses['Descripción'] = _descController.text;
+                  String result = await submitAnonymousReport('Sobrecarga Laboral', _responses);
+                  if (mounted) {
+                    setState(() => _isSubmitting = false);
+                    if (result == 'ok') {
+                      showSuccessDialog(context);
+                    } else {
+                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error al enviar el reporte: $result')));
+                    }
+                  }
+                },
+                icon: _isSubmitting ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)) : const Icon(Icons.send),
+                label: Text(_isSubmitting ? 'Enviando...' : 'Enviar reporte confidencial', style: const TextStyle(fontWeight: FontWeight.bold)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+              ),
+            ),
           ],
         ),
       ),
@@ -1054,6 +1399,9 @@ class AcosoScreen extends StatefulWidget {
 
 class _AcosoScreenState extends State<AcosoScreen> {
   final PageController _pageController = PageController();
+  final TextEditingController _descController1 = TextEditingController();
+  final TextEditingController _descController2 = TextEditingController();
+  bool _isSubmitting = false;
   int _currentPage = 0;
   final int _totalPages = 8;
 
@@ -1086,13 +1434,25 @@ class _AcosoScreenState extends State<AcosoScreen> {
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        leading: IconButton(icon: const Icon(Icons.arrow_back, color: AppColors.primary), onPressed: () => Navigator.pop(context)),
-        title: Row(
+        leading: IconButton(icon: const Icon(Icons.arrow_back, color: AppColors.primary), onPressed: () {
+          if (_currentPage > 0) {
+            _pageController.previousPage(duration: const Duration(milliseconds: 400), curve: Curves.easeInOut);
+          } else {
+            Navigator.pop(context);
+          }
+        }),
+        title: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.pan_tool, color: Colors.redAccent),
-            const SizedBox(width: 8),
-            Text('Pregunta ${_currentPage + 1} de $_totalPages', style: const TextStyle(color: AppColors.primary, fontSize: 16, fontWeight: FontWeight.bold)),
+            const Text('Módulo: Acoso Laboral', style: TextStyle(color: AppColors.textSecondary, fontSize: 13, fontWeight: FontWeight.normal)),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.pan_tool, color: Colors.redAccent, size: 20),
+                const SizedBox(width: 8),
+                Text('Pregunta ${_currentPage + 1} de $_totalPages', style: const TextStyle(color: AppColors.primary, fontSize: 16, fontWeight: FontWeight.bold)),
+              ],
+            ),
           ],
         ),
         centerTitle: true,
@@ -1137,36 +1497,59 @@ class _AcosoScreenState extends State<AcosoScreen> {
     );
   }
 
-  Widget _buildQuestionContainer({required String title, String? subtitle, required Widget child}) {
+  Widget _buildQuestionContainer({required String title, String? subtitle, required Widget child, IconData? icon}) {
     return Padding(
-      padding: const EdgeInsets.all(24.0),
+      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(title, textAlign: TextAlign.center, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: AppColors.primary)),
-          if (subtitle != null) ...[
-            const SizedBox(height: 8),
-            Text(subtitle, textAlign: TextAlign.center, style: const TextStyle(fontSize: 14, color: AppColors.textSecondary)),
-          ],
-          const SizedBox(height: 40),
+          Container(
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(24),
+              boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 20, offset: const Offset(0, 10))],
+            ),
+            child: Column(
+              children: [
+                if (icon != null) ...[
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: AppColors.primaryLight.withOpacity(0.15),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(icon, size: 40, color: AppColors.primary),
+                  ),
+                  const SizedBox(height: 16),
+                ],
+                Text(title, textAlign: TextAlign.center, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: AppColors.primary)),
+                if (subtitle != null) ...[
+                  const SizedBox(height: 12),
+                  Text(subtitle, textAlign: TextAlign.center, style: const TextStyle(fontSize: 14, color: AppColors.textSecondary, height: 1.4)),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(height: 24),
           Expanded(child: child),
         ],
       ),
     );
   }
-
   Widget _buildQ1() {
     return _buildQuestionContainer(
       title: '¿Has sido víctima de acoso laboral?',
+      icon: Icons.shield_outlined,
       subtitle: 'Entendemos que puede ser difícil hablar de esto. Tu reporte será tratado con la máxima confidencialidad.',
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _buildBigButton('Sí, he sido víctima', Colors.green, () => Future.delayed(const Duration(milliseconds: 300), _nextPage)),
+          _buildBigButton('Sí, he sido víctima', Colors.green, () => Future.delayed(const Duration(milliseconds: 300), _nextPage), icon: Icons.check_circle_outline),
           const SizedBox(height: 16),
-          _buildBigButton('No, quiero reportar a otra persona', Colors.red, () => Future.delayed(const Duration(milliseconds: 300), _nextPage)),
+          _buildBigButton('Reportar por alguien más', Colors.red, () => Future.delayed(const Duration(milliseconds: 300), _nextPage), icon: Icons.group_add_outlined),
         ],
       ),
     );
@@ -1175,6 +1558,7 @@ class _AcosoScreenState extends State<AcosoScreen> {
   Widget _buildQ2() {
     return _buildQuestionContainer(
       title: '¿Qué tipo de acoso has experimentado?',
+      icon: Icons.warning_amber_rounded,
       subtitle: 'Puedes seleccionar más de una opción.',
       child: Column(
         children: [
@@ -1235,6 +1619,7 @@ class _AcosoScreenState extends State<AcosoScreen> {
     List<String> options = ['Compañero(a) de trabajo', 'Jefe(a) o superior inmediato', 'Subordinado(a)', 'Cliente o proveedor', 'Otra persona (especificar en la descripción)'];
     return _buildQuestionContainer(
       title: '¿Quién es la persona agresora?',
+      icon: Icons.person_search_outlined,
       subtitle: 'Selecciona la opción que corresponda.',
       child: Column(
         children: [
@@ -1262,6 +1647,7 @@ class _AcosoScreenState extends State<AcosoScreen> {
   Widget _buildQ4() {
     return _buildQuestionContainer(
       title: '¿Cuándo ocurrió?',
+      icon: Icons.event_note,
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1295,6 +1681,7 @@ class _AcosoScreenState extends State<AcosoScreen> {
   Widget _buildQ5() {
     return _buildQuestionContainer(
       title: '¿Hay testigos de la situación?',
+      icon: Icons.visibility_outlined,
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1310,12 +1697,15 @@ class _AcosoScreenState extends State<AcosoScreen> {
   Widget _buildQ6() {
     return _buildQuestionContainer(
       title: 'Descripción del hecho',
+      icon: Icons.edit_note,
       subtitle: 'Cuéntanos qué ocurrió. Incluye detalles que consideres importantes.',
       child: SingleChildScrollView(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             TextField(
+              controller: _descController1,
+              onChanged: (val) => setState((){}),
               maxLines: 6,
               maxLength: 1000,
               decoration: InputDecoration(hintText: 'Describe brevemente la situación...', border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)), filled: true, fillColor: Colors.white),
@@ -1332,6 +1722,7 @@ class _AcosoScreenState extends State<AcosoScreen> {
     List<String> options = ['Estrés', 'Ansiedad', 'Tristeza', 'Bajo rendimiento', 'Problemas de sueño', 'Otro'];
     return _buildQuestionContainer(
       title: '¿Cómo te ha afectado esta situación?',
+      icon: Icons.healing,
       subtitle: 'Puedes seleccionar más de una opción.',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1370,11 +1761,14 @@ class _AcosoScreenState extends State<AcosoScreen> {
   Widget _buildQ8() {
     return _buildQuestionContainer(
       title: 'Sugerencias o medidas que consideras podrían ayudar',
+      icon: Icons.lightbulb_outline,
       child: SingleChildScrollView(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             TextField(
+              controller: _descController2,
+              onChanged: (val) => setState((){}),
               maxLines: 6,
               maxLength: 1000,
               decoration: InputDecoration(hintText: 'Escribe aquí tus sugerencias...', border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)), filled: true, fillColor: Colors.white),
@@ -1392,14 +1786,39 @@ class _AcosoScreenState extends State<AcosoScreen> {
               ),
             ),
             const SizedBox(height: 24),
-            ElevatedButton.icon(
-              onPressed: () {
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Reporte confidencial enviado correctamente. ¡No estás solo(a)!')));
-              },
-              icon: const Icon(Icons.send, color: Colors.white),
-              label: const Text('Enviar reporte', style: TextStyle(fontSize: 18, color: Colors.white)),
-              style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary, padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: (_isSubmitting || _descController2.text.trim().isEmpty) ? null : () async {
+                  setState(() => _isSubmitting = true);
+                  Map<String, dynamic> payload = {
+                    'Tipos de acoso': _selectedAcosoTypes.toList(),
+                    'Agresor': _selectedAggressor,
+                    'Fecha': _selectedDate?.toIso8601String(),
+                    'Hora': _selectedTime?.format(context),
+                    'Afectaciones': _selectedAffections.toList(),
+                    'Descripción del hecho': _descController1.text,
+                    'Sugerencias': _descController2.text
+                  };
+                  String result = await submitAnonymousReport('Acoso Laboral', payload);
+                  if (mounted) {
+                    setState(() => _isSubmitting = false);
+                    if (result == 'ok') {
+                      showSuccessDialog(context);
+                    } else {
+                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error al enviar el reporte: $result')));
+                    }
+                  }
+                },
+                icon: _isSubmitting ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)) : const Icon(Icons.security),
+                label: Text(_isSubmitting ? 'Enviando...' : 'Enviar reporte confidencial', style: const TextStyle(fontWeight: FontWeight.bold)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+              ),
             )
           ],
         ),
@@ -1407,22 +1826,53 @@ class _AcosoScreenState extends State<AcosoScreen> {
     );
   }
 
-  Widget _buildBigButton(String label, Color color, VoidCallback onTap) {
-    return InkWell(
-      onTap: onTap,
-      child: Container(
-        height: 80,
-        decoration: BoxDecoration(color: Colors.white, border: Border.all(color: color, width: 2), borderRadius: BorderRadius.circular(16)),
-        child: Center(child: Text(label, textAlign: TextAlign.center, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: color))),
+  Widget _buildBigButton(String label, Color color, VoidCallback onTap, {IconData? icon}) {
+    return ElevatedButton(
+      onPressed: onTap,
+      style: ElevatedButton.styleFrom(
+        backgroundColor: Colors.white,
+        foregroundColor: color,
+        elevation: 2,
+        shadowColor: color.withOpacity(0.2),
+        padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: color.withOpacity(0.3), width: 2)),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          if (icon != null) ...[Icon(icon, size: 28), const SizedBox(width: 12)],
+          Flexible(child: Text(label, textAlign: TextAlign.center, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: color))),
+        ],
       ),
     );
+  }
+  bool _canProceed() {
+    if (_currentPage == 1) return _selectedAcosoTypes.isNotEmpty;
+    if (_currentPage == 2) return _selectedAggressor != null;
+    if (_currentPage == 3) return _selectedDate != null && _selectedTime != null;
+    if (_currentPage == 5) return _descController1.text.trim().isNotEmpty;
+    if (_currentPage == 6) return _selectedAffections.isNotEmpty;
+    return true;
   }
 
   Widget _buildNextButton() {
     return ElevatedButton(
-      onPressed: _nextPage,
-      style: ElevatedButton.styleFrom(backgroundColor: AppColors.primaryLight, padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
-      child: const Text('Siguiente', style: TextStyle(fontSize: 18, color: Colors.white)),
+      onPressed: _canProceed() ? _nextPage : null,
+      style: ElevatedButton.styleFrom(
+        backgroundColor: AppColors.primary, 
+        padding: const EdgeInsets.symmetric(vertical: 18), 
+        elevation: 4,
+        shadowColor: AppColors.primary.withOpacity(0.4),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))
+      ),
+      child: const Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text('Siguiente', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
+          SizedBox(width: 8),
+          Icon(Icons.arrow_forward_rounded, color: Colors.white, size: 24),
+        ],
+      ),
     );
   }
 }
@@ -1437,7 +1887,15 @@ class DiscriminacionScreen extends StatefulWidget {
 
 class _DiscriminacionScreenState extends State<DiscriminacionScreen> {
   final PageController _pageController = PageController();
+  final TextEditingController _descController = TextEditingController();
+  bool _isSubmitting = false;
   int _currentPage = 0;
+  Map<String, dynamic> _responses = {};
+
+  void _record(String q, String a) {
+    setState(() => _responses[q] = a);
+    Future.delayed(const Duration(milliseconds: 300), _nextPage);
+  }
   final int _totalPages = 8;
 
   void _nextPage() {
@@ -1462,13 +1920,25 @@ class _DiscriminacionScreenState extends State<DiscriminacionScreen> {
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        leading: IconButton(icon: const Icon(Icons.arrow_back, color: AppColors.primary), onPressed: () => Navigator.pop(context)),
-        title: Row(
+        leading: IconButton(icon: const Icon(Icons.arrow_back, color: AppColors.primary), onPressed: () {
+          if (_currentPage > 0) {
+            _pageController.previousPage(duration: const Duration(milliseconds: 400), curve: Curves.easeInOut);
+          } else {
+            Navigator.pop(context);
+          }
+        }),
+        title: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.work, color: Colors.deepPurpleAccent),
-            const SizedBox(width: 8),
-            Text('Pregunta ${_currentPage + 1} de $_totalPages', style: const TextStyle(color: AppColors.primary, fontSize: 16, fontWeight: FontWeight.bold)),
+            const Text('Módulo: Discriminación y Exclusión', style: TextStyle(color: AppColors.textSecondary, fontSize: 13, fontWeight: FontWeight.normal)),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.work, color: Colors.deepPurpleAccent, size: 20),
+                const SizedBox(width: 8),
+                Text('Pregunta ${_currentPage + 1} de $_totalPages', style: const TextStyle(color: AppColors.primary, fontSize: 16, fontWeight: FontWeight.bold)),
+              ],
+            ),
           ],
         ),
         centerTitle: true,
@@ -1513,98 +1983,141 @@ class _DiscriminacionScreenState extends State<DiscriminacionScreen> {
     );
   }
 
-  Widget _buildQuestionContainer({required String title, required Widget child}) {
+  Widget _buildQuestionContainer({required String title, String? subtitle, required Widget child, IconData? icon}) {
     return Padding(
-      padding: const EdgeInsets.all(24.0),
+      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(title, textAlign: TextAlign.center, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: AppColors.primary)),
-          const SizedBox(height: 40),
-          child,
+          Container(
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(24),
+              boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 20, offset: const Offset(0, 10))],
+            ),
+            child: Column(
+              children: [
+                if (icon != null) ...[
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: AppColors.primaryLight.withOpacity(0.15),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(icon, size: 40, color: AppColors.primary),
+                  ),
+                  const SizedBox(height: 16),
+                ],
+                Text(title, textAlign: TextAlign.center, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: AppColors.primary)),
+                if (subtitle != null) ...[
+                  const SizedBox(height: 12),
+                  Text(subtitle, textAlign: TextAlign.center, style: const TextStyle(fontSize: 14, color: AppColors.textSecondary, height: 1.4)),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(height: 24),
+          Expanded(child: child),
         ],
       ),
     );
   }
-
   Widget _buildFacesQuestion(String title) {
     return _buildQuestionContainer(
       title: title,
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-        children: [
-          _buildFaceOption(Icons.sentiment_very_satisfied, Colors.green, 'Nunca'),
-          _buildFaceOption(Icons.sentiment_satisfied, Colors.lightGreen, 'Rara vez'),
-          _buildFaceOption(Icons.sentiment_neutral, Colors.amber, 'A veces'),
-          _buildFaceOption(Icons.sentiment_dissatisfied, Colors.orange, 'Frecuente'),
-          _buildFaceOption(Icons.sentiment_very_dissatisfied, Colors.red, 'Siempre'),
-        ],
+      icon: Icons.sentiment_satisfied_alt,
+      child: Center(
+        child: Wrap(
+          alignment: WrapAlignment.center,
+          spacing: 16,
+          runSpacing: 24,
+          children: [
+            _buildFaceOption(Icons.sentiment_very_satisfied, Colors.green, 'Nunca', () => _record(title, 'Nunca')),
+            _buildFaceOption(Icons.sentiment_satisfied, Colors.lightGreen, 'Rara vez', () => _record(title, 'Rara vez')),
+            _buildFaceOption(Icons.sentiment_neutral, Colors.amber, 'A veces', () => _record(title, 'A veces')),
+            _buildFaceOption(Icons.sentiment_dissatisfied, Colors.orange, 'Frecuente', () => _record(title, 'Frecuente')),
+            _buildFaceOption(Icons.sentiment_very_dissatisfied, Colors.red, 'Siempre', () => _record(title, 'Siempre')),
+          ],
+        ),
       ),
     );
   }
-
-  Widget _buildFaceOption(IconData icon, Color color, String label) {
+  Widget _buildFaceOption(IconData icon, Color color, String label, VoidCallback onTap) {
     return GestureDetector(
-      onTap: () {
-        Future.delayed(const Duration(milliseconds: 300), _nextPage);
-      },
+      onTap: onTap,
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          CircleAvatar(radius: 26, backgroundColor: color.withOpacity(0.2), child: Icon(icon, color: color, size: 36)),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.1),
+              shape: BoxShape.circle,
+              border: Border.all(color: color.withOpacity(0.5), width: 2),
+            ),
+            child: Icon(icon, color: color, size: 36)
+          ),
           const SizedBox(height: 8),
-          Text(label, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
+          Text(label, textAlign: TextAlign.center, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
         ],
       ),
     );
   }
-
   Widget _buildBinaryQuestion(String title) {
     return _buildQuestionContainer(
       title: title,
       child: Row(
         children: [
-          Expanded(child: _buildBigButton('Sí', Colors.green)),
+          Expanded(child: _buildBigButton('Sí', Colors.green, () => _record(title, 'Sí'))),
           const SizedBox(width: 16),
-          Expanded(child: _buildBigButton('No', Colors.red)),
+          Expanded(child: _buildBigButton('No', Colors.red, () => _record(title, 'No'))),
         ],
       ),
     );
   }
 
-  Widget _buildBigButton(String label, Color color) {
-    return InkWell(
-      onTap: () {
-        Future.delayed(const Duration(milliseconds: 300), _nextPage);
-      },
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 24),
-        decoration: BoxDecoration(color: Colors.white, border: Border.all(color: color, width: 2), borderRadius: BorderRadius.circular(16)),
-        child: Center(child: Text(label, style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: color))),
+  Widget _buildBigButton(String label, Color color, VoidCallback onTap, {IconData? icon}) {
+    return ElevatedButton(
+      onPressed: onTap,
+      style: ElevatedButton.styleFrom(
+        backgroundColor: Colors.white,
+        foregroundColor: color,
+        elevation: 2,
+        shadowColor: color.withOpacity(0.2),
+        padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: color.withOpacity(0.3), width: 2)),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          if (icon != null) ...[Icon(icon, size: 28), const SizedBox(width: 12)],
+          Flexible(child: Text(label, textAlign: TextAlign.center, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: color))),
+        ],
       ),
     );
   }
-
   Widget _buildLevelsQuestion(String title) {
     return _buildQuestionContainer(
       title: title,
       child: Column(
         children: [
-          _buildLevelButton('Poco', Colors.green),
+          _buildLevelButton('Poco', Colors.green, () => _record(title, 'Poco')),
           const SizedBox(height: 12),
-          _buildLevelButton('Moderado', Colors.amber),
+          _buildLevelButton('Moderado', Colors.amber, () => _record(title, 'Moderado')),
           const SizedBox(height: 12),
-          _buildLevelButton('Mucho', Colors.orange),
+          _buildLevelButton('Mucho', Colors.orange, () => _record(title, 'Mucho')),
           const SizedBox(height: 12),
-          _buildLevelButton('Extremadamente', Colors.red),
+          _buildLevelButton('Extremadamente', Colors.red, () => _record(title, 'Extremadamente')),
         ],
       ),
     );
   }
 
-  Widget _buildLevelButton(String label, Color color) {
+  Widget _buildLevelButton(String label, Color color, VoidCallback onTap) {
     return InkWell(
-      onTap: () => Future.delayed(const Duration(milliseconds: 300), _nextPage),
+      onTap: onTap,
       child: Container(
         width: double.infinity,
         padding: const EdgeInsets.symmetric(vertical: 16),
@@ -1626,13 +2139,13 @@ class _DiscriminacionScreenState extends State<DiscriminacionScreen> {
             decoration: InputDecoration(
               prefixIcon: const Icon(Icons.apartment),
               border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)), filled: true, fillColor: Colors.white),
-            items: const [DropdownMenuItem(value: 'Ventas', child: Text('Ventas')), DropdownMenuItem(value: 'IT', child: Text('IT'))],
-            onChanged: (val) {},
+            items: globalCompanyAreas.map((a) => DropdownMenuItem(value: a, child: Text(a))).toList(),
+            onChanged: (val) { if (val != null) setState(() => _responses['Área'] = val); },
             hint: const Text('Seleccionar área'),
           ),
           const SizedBox(height: 32),
           ElevatedButton(
-            onPressed: _nextPage,
+            onPressed: _responses['Área'] == null ? null : _nextPage,
             style: ElevatedButton.styleFrom(backgroundColor: AppColors.primaryLight, padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
             child: const Text('Siguiente', style: TextStyle(fontSize: 18, color: Colors.white)),
           )
@@ -1654,12 +2167,12 @@ class _DiscriminacionScreenState extends State<DiscriminacionScreen> {
               prefixIcon: const Icon(Icons.date_range),
               border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)), filled: true, fillColor: Colors.white),
             items: const [DropdownMenuItem(value: '1', child: Text('Menos de 1 año')), DropdownMenuItem(value: '2', child: Text('1 a 3 años'))],
-            onChanged: (val) {},
+            onChanged: (val) { if (val != null) setState(() => _responses['Antigüedad'] = val); },
             hint: const Text('Seleccionar'),
           ),
           const SizedBox(height: 32),
           ElevatedButton(
-            onPressed: _nextPage,
+            onPressed: _responses['Antigüedad'] == null ? null : _nextPage,
             style: ElevatedButton.styleFrom(backgroundColor: AppColors.primaryLight, padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
             child: const Text('Siguiente', style: TextStyle(fontSize: 18, color: Colors.white)),
           )
@@ -1676,6 +2189,7 @@ class _DiscriminacionScreenState extends State<DiscriminacionScreen> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             TextField(
+              onChanged: (val) => setState(() => _responses[title] = val),
               maxLines: 6,
               maxLength: 1000,
               decoration: InputDecoration(
@@ -1687,7 +2201,7 @@ class _DiscriminacionScreenState extends State<DiscriminacionScreen> {
             ),
             const SizedBox(height: 24),
             ElevatedButton(
-              onPressed: _nextPage,
+              onPressed: (_responses[title] ?? '').trim().isEmpty ? null : _nextPage,
               style: ElevatedButton.styleFrom(backgroundColor: AppColors.primaryLight, padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
               child: const Text('Siguiente', style: TextStyle(fontSize: 18, color: Colors.white)),
             )
@@ -1707,6 +2221,7 @@ class _DiscriminacionScreenState extends State<DiscriminacionScreen> {
             const Text('¿Qué medida consideras que podría ayudar a mejorar esta situación?', style: TextStyle(color: AppColors.textSecondary)),
             const SizedBox(height: 16),
             TextField(
+              onChanged: (val) => setState(() => _responses['Sugerencias adicionales'] = val),
               maxLines: 5,
               maxLength: 1000,
               decoration: InputDecoration(
@@ -1729,15 +2244,31 @@ class _DiscriminacionScreenState extends State<DiscriminacionScreen> {
               ),
             ),
             const SizedBox(height: 24),
-            ElevatedButton.icon(
-              onPressed: () {
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Reporte enviado correctamente. ¡Gracias!')));
-              },
-              icon: const Icon(Icons.send, color: Colors.white),
-              label: const Text('Enviar reporte', style: TextStyle(fontSize: 18, color: Colors.white)),
-              style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary, padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
-            )
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: (_isSubmitting || (_responses['Sugerencias adicionales'] ?? '').trim().isEmpty) ? null : () async {
+                  setState(() => _isSubmitting = true);
+                  String result = await submitAnonymousReport('Discriminación y Exclusión', _responses);
+                  if (mounted) {
+                    setState(() => _isSubmitting = false);
+                    if (result == 'ok') {
+                      showSuccessDialog(context);
+                    } else {
+                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error al enviar el reporte: $result')));
+                    }
+                  }
+                },
+                icon: _isSubmitting ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)) : const Icon(Icons.group_off),
+                label: Text(_isSubmitting ? 'Enviando...' : 'Enviar reporte confidencial', style: const TextStyle(fontWeight: FontWeight.bold)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+              ),
+            ),
           ],
         ),
       ),
@@ -1755,7 +2286,15 @@ class ProblemasPersonalesScreen extends StatefulWidget {
 
 class _ProblemasPersonalesScreenState extends State<ProblemasPersonalesScreen> {
   final PageController _pageController = PageController();
+  final TextEditingController _descController = TextEditingController();
+  bool _isSubmitting = false;
   int _currentPage = 0;
+  Map<String, dynamic> _responses = {};
+
+  void _record(String q, String a) {
+    setState(() => _responses[q] = a);
+    Future.delayed(const Duration(milliseconds: 300), _nextPage);
+  }
   final int _totalPages = 8;
 
   void _nextPage() {
@@ -1780,13 +2319,25 @@ class _ProblemasPersonalesScreenState extends State<ProblemasPersonalesScreen> {
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        leading: IconButton(icon: const Icon(Icons.arrow_back, color: AppColors.primary), onPressed: () => Navigator.pop(context)),
-        title: Row(
+        leading: IconButton(icon: const Icon(Icons.arrow_back, color: AppColors.primary), onPressed: () {
+          if (_currentPage > 0) {
+            _pageController.previousPage(duration: const Duration(milliseconds: 400), curve: Curves.easeInOut);
+          } else {
+            Navigator.pop(context);
+          }
+        }),
+        title: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.person, color: Colors.deepPurpleAccent),
-            const SizedBox(width: 8),
-            Text('Pregunta ${_currentPage + 1} de $_totalPages', style: const TextStyle(color: AppColors.primary, fontSize: 16, fontWeight: FontWeight.bold)),
+            const Text('Módulo: Problemas Personales', style: TextStyle(color: AppColors.textSecondary, fontSize: 13, fontWeight: FontWeight.normal)),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.person, color: Colors.deepPurpleAccent, size: 20),
+                const SizedBox(width: 8),
+                Text('Pregunta ${_currentPage + 1} de $_totalPages', style: const TextStyle(color: AppColors.primary, fontSize: 16, fontWeight: FontWeight.bold)),
+              ],
+            ),
           ],
         ),
         centerTitle: true,
@@ -1831,78 +2382,121 @@ class _ProblemasPersonalesScreenState extends State<ProblemasPersonalesScreen> {
     );
   }
 
-  Widget _buildQuestionContainer({required String title, required Widget child}) {
+  Widget _buildQuestionContainer({required String title, String? subtitle, required Widget child, IconData? icon}) {
     return Padding(
-      padding: const EdgeInsets.all(24.0),
+      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(title, textAlign: TextAlign.center, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: AppColors.primary)),
-          const SizedBox(height: 40),
-          child,
+          Container(
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(24),
+              boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 20, offset: const Offset(0, 10))],
+            ),
+            child: Column(
+              children: [
+                if (icon != null) ...[
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: AppColors.primaryLight.withOpacity(0.15),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(icon, size: 40, color: AppColors.primary),
+                  ),
+                  const SizedBox(height: 16),
+                ],
+                Text(title, textAlign: TextAlign.center, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: AppColors.primary)),
+                if (subtitle != null) ...[
+                  const SizedBox(height: 12),
+                  Text(subtitle, textAlign: TextAlign.center, style: const TextStyle(fontSize: 14, color: AppColors.textSecondary, height: 1.4)),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(height: 24),
+          Expanded(child: child),
         ],
       ),
     );
   }
-
   Widget _buildFacesQuestion(String title) {
     return _buildQuestionContainer(
       title: title,
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-        children: [
-          _buildFaceOption(Icons.sentiment_very_satisfied, Colors.green, 'Nunca'),
-          _buildFaceOption(Icons.sentiment_satisfied, Colors.lightGreen, 'Rara vez'),
-          _buildFaceOption(Icons.sentiment_neutral, Colors.amber, 'A veces'),
-          _buildFaceOption(Icons.sentiment_dissatisfied, Colors.orange, 'Frecuente'),
-          _buildFaceOption(Icons.sentiment_very_dissatisfied, Colors.red, 'Siempre'),
-        ],
+      icon: Icons.sentiment_satisfied_alt,
+      child: Center(
+        child: Wrap(
+          alignment: WrapAlignment.center,
+          spacing: 16,
+          runSpacing: 24,
+          children: [
+            _buildFaceOption(Icons.sentiment_very_satisfied, Colors.green, 'Nunca', () => _record(title, 'Nunca')),
+            _buildFaceOption(Icons.sentiment_satisfied, Colors.lightGreen, 'Rara vez', () => _record(title, 'Rara vez')),
+            _buildFaceOption(Icons.sentiment_neutral, Colors.amber, 'A veces', () => _record(title, 'A veces')),
+            _buildFaceOption(Icons.sentiment_dissatisfied, Colors.orange, 'Frecuente', () => _record(title, 'Frecuente')),
+            _buildFaceOption(Icons.sentiment_very_dissatisfied, Colors.red, 'Siempre', () => _record(title, 'Siempre')),
+          ],
+        ),
       ),
     );
   }
-
-  Widget _buildFaceOption(IconData icon, Color color, String label) {
+  Widget _buildFaceOption(IconData icon, Color color, String label, VoidCallback onTap) {
     return GestureDetector(
-      onTap: () {
-        Future.delayed(const Duration(milliseconds: 300), _nextPage);
-      },
+      onTap: onTap,
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          CircleAvatar(radius: 26, backgroundColor: color.withOpacity(0.2), child: Icon(icon, color: color, size: 36)),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.1),
+              shape: BoxShape.circle,
+              border: Border.all(color: color.withOpacity(0.5), width: 2),
+            ),
+            child: Icon(icon, color: color, size: 36)
+          ),
           const SizedBox(height: 8),
-          Text(label, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
+          Text(label, textAlign: TextAlign.center, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
         ],
       ),
     );
   }
-
   Widget _buildBinaryQuestion(String title) {
     return _buildQuestionContainer(
       title: title,
       child: Row(
         children: [
-          Expanded(child: _buildBigButton('Sí', Colors.green)),
+          Expanded(child: _buildBigButton('Sí', Colors.green, () => _record(title, 'Sí'))),
           const SizedBox(width: 16),
-          Expanded(child: _buildBigButton('No', Colors.red)),
+          Expanded(child: _buildBigButton('No', Colors.red, () => _record(title, 'No'))),
         ],
       ),
     );
   }
 
-  Widget _buildBigButton(String label, Color color) {
-    return InkWell(
-      onTap: () {
-        Future.delayed(const Duration(milliseconds: 300), _nextPage);
-      },
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 24),
-        decoration: BoxDecoration(color: Colors.white, border: Border.all(color: color, width: 2), borderRadius: BorderRadius.circular(16)),
-        child: Center(child: Text(label, style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: color))),
+  Widget _buildBigButton(String label, Color color, VoidCallback onTap, {IconData? icon}) {
+    return ElevatedButton(
+      onPressed: onTap,
+      style: ElevatedButton.styleFrom(
+        backgroundColor: Colors.white,
+        foregroundColor: color,
+        elevation: 2,
+        shadowColor: color.withOpacity(0.2),
+        padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: color.withOpacity(0.3), width: 2)),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          if (icon != null) ...[Icon(icon, size: 28), const SizedBox(width: 12)],
+          Flexible(child: Text(label, textAlign: TextAlign.center, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: color))),
+        ],
       ),
     );
   }
-
   Widget _buildDropdownArea() {
     return _buildQuestionContainer(
       title: 'Área de trabajo',
@@ -1915,13 +2509,13 @@ class _ProblemasPersonalesScreenState extends State<ProblemasPersonalesScreen> {
             decoration: InputDecoration(
               prefixIcon: const Icon(Icons.apartment),
               border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)), filled: true, fillColor: Colors.white),
-            items: const [DropdownMenuItem(value: 'Ventas', child: Text('Ventas')), DropdownMenuItem(value: 'IT', child: Text('IT'))],
-            onChanged: (val) {},
+            items: globalCompanyAreas.map((a) => DropdownMenuItem(value: a, child: Text(a))).toList(),
+            onChanged: (val) { if (val != null) setState(() => _responses['Área'] = val); },
             hint: const Text('Seleccionar área'),
           ),
           const SizedBox(height: 32),
           ElevatedButton(
-            onPressed: _nextPage,
+            onPressed: _responses['Área'] == null ? null : _nextPage,
             style: ElevatedButton.styleFrom(backgroundColor: AppColors.primaryLight, padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
             child: const Text('Siguiente', style: TextStyle(fontSize: 18, color: Colors.white)),
           )
@@ -1943,12 +2537,12 @@ class _ProblemasPersonalesScreenState extends State<ProblemasPersonalesScreen> {
               prefixIcon: const Icon(Icons.date_range),
               border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)), filled: true, fillColor: Colors.white),
             items: const [DropdownMenuItem(value: '1', child: Text('Menos de 1 año')), DropdownMenuItem(value: '2', child: Text('1 a 3 años'))],
-            onChanged: (val) {},
+            onChanged: (val) { if (val != null) setState(() => _responses['Antigüedad'] = val); },
             hint: const Text('Seleccionar'),
           ),
           const SizedBox(height: 32),
           ElevatedButton(
-            onPressed: _nextPage,
+            onPressed: _responses['Antigüedad'] == null ? null : _nextPage,
             style: ElevatedButton.styleFrom(backgroundColor: AppColors.primaryLight, padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
             child: const Text('Siguiente', style: TextStyle(fontSize: 18, color: Colors.white)),
           )
@@ -1965,6 +2559,7 @@ class _ProblemasPersonalesScreenState extends State<ProblemasPersonalesScreen> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             TextField(
+              onChanged: (val) => setState(() => _responses[title] = val),
               maxLines: 6,
               maxLength: 1000,
               decoration: InputDecoration(
@@ -1976,7 +2571,7 @@ class _ProblemasPersonalesScreenState extends State<ProblemasPersonalesScreen> {
             ),
             const SizedBox(height: 24),
             ElevatedButton(
-              onPressed: _nextPage,
+              onPressed: (_responses[title] ?? '').trim().isEmpty ? null : _nextPage,
               style: ElevatedButton.styleFrom(backgroundColor: AppColors.primaryLight, padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
               child: const Text('Siguiente', style: TextStyle(fontSize: 18, color: Colors.white)),
             )
@@ -1996,6 +2591,7 @@ class _ProblemasPersonalesScreenState extends State<ProblemasPersonalesScreen> {
             const Text('¿Qué tipo de apoyo o medida consideras que podría ayudarte?', style: TextStyle(color: AppColors.textSecondary)),
             const SizedBox(height: 16),
             TextField(
+              onChanged: (val) => setState(() => _responses['Sugerencias adicionales'] = val),
               maxLines: 5,
               maxLength: 1000,
               decoration: InputDecoration(
@@ -2018,15 +2614,31 @@ class _ProblemasPersonalesScreenState extends State<ProblemasPersonalesScreen> {
               ),
             ),
             const SizedBox(height: 24),
-            ElevatedButton.icon(
-              onPressed: () {
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Reporte enviado correctamente. ¡Gracias por la confianza!')));
-              },
-              icon: const Icon(Icons.send, color: Colors.white),
-              label: const Text('Enviar reporte', style: TextStyle(fontSize: 18, color: Colors.white)),
-              style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary, padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
-            )
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: (_isSubmitting || (_responses['Sugerencias adicionales'] ?? '').trim().isEmpty) ? null : () async {
+                  setState(() => _isSubmitting = true);
+                  String result = await submitAnonymousReport('Problemas Personales', _responses);
+                  if (mounted) {
+                    setState(() => _isSubmitting = false);
+                    if (result == 'ok') {
+                      showSuccessDialog(context);
+                    } else {
+                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error al enviar el reporte: $result')));
+                    }
+                  }
+                },
+                icon: _isSubmitting ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)) : const Icon(Icons.psychology),
+                label: Text(_isSubmitting ? 'Enviando...' : 'Enviar reporte confidencial', style: const TextStyle(fontWeight: FontWeight.bold)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+              ),
+            ),
           ],
         ),
       ),
@@ -2043,8 +2655,15 @@ class SugerenciasScreen extends StatefulWidget {
 }
 
 class _SugerenciasScreenState extends State<SugerenciasScreen> {
+  final Map<String, dynamic> _responses = {};
+  bool _isSubmitting = false;
   final PageController _pageController = PageController();
+  final TextEditingController _descController = TextEditingController();
   int _currentPage = 0;
+  void _record(String q, String a) {
+    setState(() => _responses[q] = a);
+    Future.delayed(const Duration(milliseconds: 300), _nextPage);
+  }
   final int _totalPages = 10;
 
   // States
@@ -2073,13 +2692,25 @@ class _SugerenciasScreenState extends State<SugerenciasScreen> {
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        leading: IconButton(icon: const Icon(Icons.arrow_back, color: AppColors.primary), onPressed: () => Navigator.pop(context)),
-        title: Row(
+        leading: IconButton(icon: const Icon(Icons.arrow_back, color: AppColors.primary), onPressed: () {
+          if (_currentPage > 0) {
+            _pageController.previousPage(duration: const Duration(milliseconds: 400), curve: Curves.easeInOut);
+          } else {
+            Navigator.pop(context);
+          }
+        }),
+        title: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.lightbulb, color: Colors.deepPurpleAccent),
-            const SizedBox(width: 8),
-            Text('Pregunta ${_currentPage + 1} de $_totalPages', style: const TextStyle(color: AppColors.primary, fontSize: 16, fontWeight: FontWeight.bold)),
+            const Text('Módulo: Sugerencias y Mejoras', style: TextStyle(color: AppColors.textSecondary, fontSize: 13, fontWeight: FontWeight.normal)),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.lightbulb, color: Colors.deepPurpleAccent, size: 20),
+                const SizedBox(width: 8),
+                Text('Pregunta ${_currentPage + 1} de $_totalPages', style: const TextStyle(color: AppColors.primary, fontSize: 16, fontWeight: FontWeight.bold)),
+              ],
+            ),
           ],
         ),
         centerTitle: true,
@@ -2126,53 +2757,88 @@ class _SugerenciasScreenState extends State<SugerenciasScreen> {
     );
   }
 
-  Widget _buildQuestionContainer({required String title, required Widget child}) {
+  Widget _buildQuestionContainer({required String title, String? subtitle, required Widget child, IconData? icon}) {
     return Padding(
-      padding: const EdgeInsets.all(24.0),
+      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(title, textAlign: TextAlign.center, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: AppColors.primary)),
-          const SizedBox(height: 40),
+          Container(
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(24),
+              boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 20, offset: const Offset(0, 10))],
+            ),
+            child: Column(
+              children: [
+                if (icon != null) ...[
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: AppColors.primaryLight.withOpacity(0.15),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(icon, size: 40, color: AppColors.primary),
+                  ),
+                  const SizedBox(height: 16),
+                ],
+                Text(title, textAlign: TextAlign.center, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: AppColors.primary)),
+                if (subtitle != null) ...[
+                  const SizedBox(height: 12),
+                  Text(subtitle, textAlign: TextAlign.center, style: const TextStyle(fontSize: 14, color: AppColors.textSecondary, height: 1.4)),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(height: 24),
           Expanded(child: child),
         ],
       ),
     );
   }
-
   Widget _buildFacesQuestion(String title) {
     return _buildQuestionContainer(
       title: title,
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-        children: [
-          _buildFaceOption(Icons.sentiment_very_satisfied, Colors.green, 'Nunca'),
-          _buildFaceOption(Icons.sentiment_satisfied, Colors.lightGreen, 'Rara vez'),
-          _buildFaceOption(Icons.sentiment_neutral, Colors.amber, 'A veces'),
-          _buildFaceOption(Icons.sentiment_dissatisfied, Colors.orange, 'Frecuente'),
-          _buildFaceOption(Icons.sentiment_very_dissatisfied, Colors.red, 'Siempre'),
-        ],
+      icon: Icons.sentiment_satisfied_alt,
+      child: Center(
+        child: Wrap(
+          alignment: WrapAlignment.center,
+          spacing: 16,
+          runSpacing: 24,
+          children: [
+            _buildFaceOption(Icons.sentiment_very_satisfied, Colors.green, 'Nunca', () => _record(title, 'Nunca')),
+            _buildFaceOption(Icons.sentiment_satisfied, Colors.lightGreen, 'Rara vez', () => _record(title, 'Rara vez')),
+            _buildFaceOption(Icons.sentiment_neutral, Colors.amber, 'A veces', () => _record(title, 'A veces')),
+            _buildFaceOption(Icons.sentiment_dissatisfied, Colors.orange, 'Frecuente', () => _record(title, 'Frecuente')),
+            _buildFaceOption(Icons.sentiment_very_dissatisfied, Colors.red, 'Siempre', () => _record(title, 'Siempre')),
+          ],
+        ),
       ),
     );
   }
-
-  Widget _buildFaceOption(IconData icon, Color color, String label) {
+  Widget _buildFaceOption(IconData icon, Color color, String label, VoidCallback onTap) {
     return GestureDetector(
-      onTap: () {
-        Future.delayed(const Duration(milliseconds: 300), _nextPage);
-      },
+      onTap: onTap,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          CircleAvatar(radius: 26, backgroundColor: color.withOpacity(0.2), child: Icon(icon, color: color, size: 36)),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.1),
+              shape: BoxShape.circle,
+              border: Border.all(color: color.withOpacity(0.5), width: 2),
+            ),
+            child: Icon(icon, color: color, size: 36)
+          ),
           const SizedBox(height: 8),
-          Text(label, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
+          Text(label, textAlign: TextAlign.center, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
         ],
       ),
     );
   }
-
   Widget _buildBinaryQuestion(String title) {
     return _buildQuestionContainer(
       title: title,
@@ -2180,48 +2846,55 @@ class _SugerenciasScreenState extends State<SugerenciasScreen> {
         mainAxisAlignment: MainAxisAlignment.center,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(child: _buildBigButton('Sí', Colors.green)),
+          Expanded(child: _buildBigButton('Sí', Colors.green, () => _record(title, 'Sí'))),
           const SizedBox(width: 16),
-          Expanded(child: _buildBigButton('No', Colors.red)),
+          Expanded(child: _buildBigButton('No', Colors.red, () => _record(title, 'No'))),
         ],
       ),
     );
   }
 
-  Widget _buildBigButton(String label, Color color) {
-    return InkWell(
-      onTap: () {
-        Future.delayed(const Duration(milliseconds: 300), _nextPage);
-      },
-      child: Container(
-        height: 80,
-        decoration: BoxDecoration(color: Colors.white, border: Border.all(color: color, width: 2), borderRadius: BorderRadius.circular(16)),
-        child: Center(child: Text(label, style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: color))),
+  Widget _buildBigButton(String label, Color color, VoidCallback onTap, {IconData? icon}) {
+    return ElevatedButton(
+      onPressed: onTap,
+      style: ElevatedButton.styleFrom(
+        backgroundColor: Colors.white,
+        foregroundColor: color,
+        elevation: 2,
+        shadowColor: color.withOpacity(0.2),
+        padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: color.withOpacity(0.3), width: 2)),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          if (icon != null) ...[Icon(icon, size: 28), const SizedBox(width: 12)],
+          Flexible(child: Text(label, textAlign: TextAlign.center, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: color))),
+        ],
       ),
     );
   }
-
   Widget _buildLevelsQuestion(String title) {
     return _buildQuestionContainer(
       title: title,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          _buildLevelButton('Bajo', Colors.green),
+          _buildLevelButton('Bajo', Colors.green, () => _record(title, 'Bajo')),
           const SizedBox(height: 12),
-          _buildLevelButton('Medio', Colors.amber),
+          _buildLevelButton('Medio', Colors.amber, () => _record(title, 'Medio')),
           const SizedBox(height: 12),
-          _buildLevelButton('Alto', Colors.orange),
+          _buildLevelButton('Alto', Colors.orange, () => _record(title, 'Alto')),
           const SizedBox(height: 12),
-          _buildLevelButton('Muy alto', Colors.red),
+          _buildLevelButton('Muy alto', Colors.red, () => _record(title, 'Muy alto')),
         ],
       ),
     );
   }
 
-  Widget _buildLevelButton(String label, Color color) {
+  Widget _buildLevelButton(String label, Color color, VoidCallback onTap) {
     return InkWell(
-      onTap: () => Future.delayed(const Duration(milliseconds: 300), _nextPage),
+      onTap: onTap,
       child: Container(
         width: double.infinity,
         padding: const EdgeInsets.symmetric(vertical: 16),
@@ -2243,13 +2916,13 @@ class _SugerenciasScreenState extends State<SugerenciasScreen> {
             decoration: InputDecoration(
               prefixIcon: const Icon(Icons.apartment),
               border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)), filled: true, fillColor: Colors.white),
-            items: const [DropdownMenuItem(value: 'Ventas', child: Text('Ventas')), DropdownMenuItem(value: 'IT', child: Text('IT'))],
-            onChanged: (val) {},
+            items: globalCompanyAreas.map((a) => DropdownMenuItem(value: a, child: Text(a))).toList(),
+            onChanged: (val) { if (val != null) setState(() => _responses['Área'] = val); },
             hint: const Text('Seleccionar área'),
           ),
           const SizedBox(height: 32),
           ElevatedButton(
-            onPressed: _nextPage,
+            onPressed: _responses['Área'] == null ? null : _nextPage,
             style: ElevatedButton.styleFrom(backgroundColor: AppColors.primaryLight, padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
             child: const Text('Siguiente', style: TextStyle(fontSize: 18, color: Colors.white)),
           )
@@ -2271,12 +2944,12 @@ class _SugerenciasScreenState extends State<SugerenciasScreen> {
               prefixIcon: const Icon(Icons.date_range),
               border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)), filled: true, fillColor: Colors.white),
             items: const [DropdownMenuItem(value: '1', child: Text('Menos de 1 año')), DropdownMenuItem(value: '2', child: Text('1 a 3 años'))],
-            onChanged: (val) {},
+            onChanged: (val) { if (val != null) setState(() => _responses['Antigüedad'] = val); },
             hint: const Text('Seleccionar'),
           ),
           const SizedBox(height: 32),
           ElevatedButton(
-            onPressed: _nextPage,
+            onPressed: _responses['Antigüedad'] == null ? null : _nextPage,
             style: ElevatedButton.styleFrom(backgroundColor: AppColors.primaryLight, padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
             child: const Text('Siguiente', style: TextStyle(fontSize: 18, color: Colors.white)),
           )
@@ -2314,7 +2987,7 @@ class _SugerenciasScreenState extends State<SugerenciasScreen> {
           ),
           const SizedBox(height: 16),
           ElevatedButton(
-            onPressed: _nextPage,
+            onPressed: _selectedMejoras.isEmpty ? null : _nextPage,
             style: ElevatedButton.styleFrom(backgroundColor: AppColors.primaryLight, padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
             child: const Text('Siguiente', style: TextStyle(fontSize: 18, color: Colors.white)),
           )
@@ -2395,7 +3068,7 @@ class _SugerenciasScreenState extends State<SugerenciasScreen> {
             ),
           ),
           ElevatedButton(
-            onPressed: _nextPage,
+            onPressed: _selectedBeneficios.isEmpty ? null : _nextPage,
             style: ElevatedButton.styleFrom(backgroundColor: AppColors.primaryLight, padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
             child: const Text('Siguiente', style: TextStyle(fontSize: 18, color: Colors.white)),
           )
@@ -2412,6 +3085,7 @@ class _SugerenciasScreenState extends State<SugerenciasScreen> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             TextField(
+              onChanged: (val) => setState(() => _responses[title] = val),
               maxLines: 6,
               maxLength: 1000,
               decoration: InputDecoration(
@@ -2423,7 +3097,7 @@ class _SugerenciasScreenState extends State<SugerenciasScreen> {
             ),
             const SizedBox(height: 24),
             ElevatedButton(
-              onPressed: _nextPage,
+              onPressed: (_responses[title] ?? '').trim().isEmpty ? null : _nextPage,
               style: ElevatedButton.styleFrom(backgroundColor: AppColors.primaryLight, padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
               child: const Text('Siguiente', style: TextStyle(fontSize: 18, color: Colors.white)),
             )
@@ -2443,6 +3117,7 @@ class _SugerenciasScreenState extends State<SugerenciasScreen> {
             const Text('¿Desea agregar alguna recomendación adicional?', style: TextStyle(color: AppColors.textSecondary)),
             const SizedBox(height: 16),
             TextField(
+              onChanged: (val) => _responses['Sugerencias adicionales'] = val,
               maxLines: 5,
               maxLength: 1000,
               decoration: InputDecoration(
@@ -2465,15 +3140,26 @@ class _SugerenciasScreenState extends State<SugerenciasScreen> {
               ),
             ),
             const SizedBox(height: 24),
-            ElevatedButton.icon(
-              onPressed: () {
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('¡Sugerencia enviada correctamente!')));
-              },
-              icon: const Icon(Icons.send, color: Colors.white),
-              label: const Text('Enviar sugerencia', style: TextStyle(fontSize: 18, color: Colors.white)),
-              style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary, padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
-            )
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: _isSubmitting ? null : () async {
+                  setState(() => _isSubmitting = true);
+                  String result = await submitAnonymousReport('Sugerencias y Mejoras', _responses);
+                  if (mounted) {
+                    setState(() => _isSubmitting = false);
+                    if (result == 'ok') {
+                      showSuccessDialog(context);
+                    } else {
+                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error al enviar el reporte: $result')));
+                    }
+                  }
+                },
+                icon: _isSubmitting ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)) : const Icon(Icons.psychology),
+                label: Text(_isSubmitting ? 'Enviando...' : 'Enviar sugerencia confidencial', style: const TextStyle(fontSize: 16)),
+                style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary, padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)), foregroundColor: Colors.white),
+              ),
+            ),
           ],
         ),
       ),
