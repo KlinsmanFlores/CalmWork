@@ -2,6 +2,105 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'main.dart';
 
+// Opciones generales
+const List<String> generalOptions = [
+  'Nunca',
+  'Sólo alguna vez',
+  'Algunas veces',
+  'Muchas veces',
+  'Siempre',
+];
+
+// Opciones Apartado 3
+const List<String> preocupadoOptions = [
+  'Nada preocupado',
+  'Poco preocupado',
+  'Más o menos preocupado',
+  'Bastante preocupado',
+  'Muy preocupado',
+];
+
+const List<String> q31Options = [
+  'Ninguna o casi ninguna',
+  'Sólo tareas muy puntuales',
+  'Más o menos una cuarta parte',
+  'Aproximadamente la mitad',
+  'Soy responsable de la mayor parte',
+];
+
+class SurveyQuestion {
+  final int id;
+  final String apartado;
+  final String subtitle;
+  final String text;
+  final List<String> options;
+  final bool inverted;
+  final IconData icon;
+
+  SurveyQuestion({
+    required this.id,
+    required this.apartado,
+    required this.subtitle,
+    required this.text,
+    this.options = generalOptions,
+    this.inverted = false,
+    required this.icon,
+  });
+}
+
+final List<SurveyQuestion> surveyQuestions = [
+  // Apartado 1: Exigencias Psicológicas
+  SurveyQuestion(id: 1, apartado: 'Apartado 1', subtitle: 'Exigencias del Trabajo', icon: Icons.psychology_alt, text: '¿Tienes que trabajar muy rápido?'),
+  SurveyQuestion(id: 2, apartado: 'Apartado 1', subtitle: 'Exigencias del Trabajo', icon: Icons.psychology_alt, text: '¿La distribución de tareas es irregular y provoca que se te acumule el trabajo?'),
+  SurveyQuestion(id: 3, apartado: 'Apartado 1', subtitle: 'Exigencias del Trabajo', icon: Icons.psychology_alt, text: '¿Tienes tiempo de llevar al día tu trabajo?', inverted: true),
+  SurveyQuestion(id: 4, apartado: 'Apartado 1', subtitle: 'Exigencias del Trabajo', icon: Icons.psychology_alt, text: '¿Te cuesta olvidar los problemas del trabajo?'),
+  SurveyQuestion(id: 5, apartado: 'Apartado 1', subtitle: 'Exigencias del Trabajo', icon: Icons.psychology_alt, text: '¿Tu trabajo, en general, es desgastador emocionalmente?'),
+  SurveyQuestion(id: 6, apartado: 'Apartado 1', subtitle: 'Exigencias del Trabajo', icon: Icons.psychology_alt, text: '¿Tu trabajo requiere que escondas tus emociones?'),
+
+  // Apartado 2: Trabajo Activo
+  SurveyQuestion(id: 7, apartado: 'Apartado 2', subtitle: 'Trabajo Activo y Desarrollo', icon: Icons.lightbulb_outline, text: '¿Tienes influencia sobre la cantidad de trabajo que se te asigna?'),
+  SurveyQuestion(id: 8, apartado: 'Apartado 2', subtitle: 'Trabajo Activo y Desarrollo', icon: Icons.lightbulb_outline, text: '¿Se tiene en cuenta tu opinión cuando se te asignan tareas?'),
+  SurveyQuestion(id: 9, apartado: 'Apartado 2', subtitle: 'Trabajo Activo y Desarrollo', icon: Icons.lightbulb_outline, text: '¿Tienes influencia sobre el orden en el que realizas las tareas?'),
+  SurveyQuestion(id: 10, apartado: 'Apartado 2', subtitle: 'Trabajo Activo y Desarrollo', icon: Icons.lightbulb_outline, text: '¿Puedes decidir cuándo haces un descanso?'),
+  SurveyQuestion(id: 11, apartado: 'Apartado 2', subtitle: 'Trabajo Activo y Desarrollo', icon: Icons.lightbulb_outline, text: 'Si tienes algún asunto personal o familiar ¿puedes dejar tu puesto de trabajo al menos una hora sin pedir permiso especial?'),
+  SurveyQuestion(id: 12, apartado: 'Apartado 2', subtitle: 'Trabajo Activo y Desarrollo', icon: Icons.lightbulb_outline, text: '¿Tu trabajo requiere que tengas iniciativa?'),
+  SurveyQuestion(id: 13, apartado: 'Apartado 2', subtitle: 'Trabajo Activo y Desarrollo', icon: Icons.lightbulb_outline, text: '¿Tu trabajo permite que aprendas cosas nuevas?'),
+  SurveyQuestion(id: 14, apartado: 'Apartado 2', subtitle: 'Trabajo Activo y Desarrollo', icon: Icons.lightbulb_outline, text: '¿Te sientes comprometido con tu profesión?'),
+  SurveyQuestion(id: 15, apartado: 'Apartado 2', subtitle: 'Trabajo Activo y Desarrollo', icon: Icons.lightbulb_outline, text: '¿Tienen sentido tus tareas?'),
+  SurveyQuestion(id: 16, apartado: 'Apartado 2', subtitle: 'Trabajo Activo y Desarrollo', icon: Icons.lightbulb_outline, text: '¿Hablas con entusiasmo de tu empresa a otras personas?'),
+
+  // Apartado 3: Inseguridad
+  SurveyQuestion(id: 17, apartado: 'Apartado 3', subtitle: 'Preocupaciones e Inseguridad', icon: Icons.security_update_warning_outlined, text: 'En estos momentos, ¿estás preocupado/a por lo difícil que sería encontrar otro trabajo en el caso de que te quedaras en paro?', options: preocupadoOptions),
+  SurveyQuestion(id: 18, apartado: 'Apartado 3', subtitle: 'Preocupaciones e Inseguridad', icon: Icons.security_update_warning_outlined, text: 'En estos momentos, ¿estás preocupado/a por si te cambian de tareas contra tu voluntad?', options: preocupadoOptions),
+  SurveyQuestion(id: 19, apartado: 'Apartado 3', subtitle: 'Preocupaciones e Inseguridad', icon: Icons.security_update_warning_outlined, text: 'En estos momentos, ¿estás preocupado/a por si te cambian el horario (turno, días) contra tu voluntad?', options: preocupadoOptions),
+  SurveyQuestion(id: 20, apartado: 'Apartado 3', subtitle: 'Preocupaciones e Inseguridad', icon: Icons.security_update_warning_outlined, text: 'En estos momentos, ¿estás preocupado/a por si te varían el salario (bajada, no actualización)?', options: preocupadoOptions),
+
+  // Apartado 4: Apoyo Social y Calidad de Liderazgo
+  SurveyQuestion(id: 21, apartado: 'Apartado 4', subtitle: 'Apoyo y Liderazgo', icon: Icons.groups_outlined, text: '¿Sabes exactamente qué margen de autonomía tienes en tu trabajo?'),
+  SurveyQuestion(id: 22, apartado: 'Apartado 4', subtitle: 'Apoyo y Liderazgo', icon: Icons.groups_outlined, text: '¿Sabes exactamente qué tareas son de tu responsabilidad?'),
+  SurveyQuestion(id: 23, apartado: 'Apartado 4', subtitle: 'Apoyo y Liderazgo', icon: Icons.groups_outlined, text: '¿En tu empresa se te informa con antelación de cambios que afectan tu futuro?'),
+  SurveyQuestion(id: 24, apartado: 'Apartado 4', subtitle: 'Apoyo y Liderazgo', icon: Icons.groups_outlined, text: '¿Recibes toda la información que necesitas para realizar bien tu trabajo?'),
+  SurveyQuestion(id: 25, apartado: 'Apartado 4', subtitle: 'Apoyo y Liderazgo', icon: Icons.groups_outlined, text: '¿Recibes ayuda y apoyo de tus compañeras o compañeros?'),
+  SurveyQuestion(id: 26, apartado: 'Apartado 4', subtitle: 'Apoyo y Liderazgo', icon: Icons.groups_outlined, text: '¿Recibes ayuda y apoyo de tu inmediato o inmediata superior?'),
+  SurveyQuestion(id: 27, apartado: 'Apartado 4', subtitle: 'Apoyo y Liderazgo', icon: Icons.groups_outlined, text: '¿Tu puesto de trabajo se encuentra aislado del de tus compañeros/as?', inverted: true),
+  SurveyQuestion(id: 28, apartado: 'Apartado 4', subtitle: 'Apoyo y Liderazgo', icon: Icons.groups_outlined, text: 'En el trabajo, ¿sientes que formas parte de un grupo?'),
+  SurveyQuestion(id: 29, apartado: 'Apartado 4', subtitle: 'Apoyo y Liderazgo', icon: Icons.groups_outlined, text: '¿Tus actuales jefes inmediatos planifican bien el trabajo?'),
+  SurveyQuestion(id: 30, apartado: 'Apartado 4', subtitle: 'Apoyo y Liderazgo', icon: Icons.groups_outlined, text: '¿Tus actuales jefes inmediatos se comunican bien con el equipo?'),
+
+  // Apartado 5: Doble Presencia
+  SurveyQuestion(id: 31, apartado: 'Apartado 5', subtitle: 'Equilibrio Trabajo y Familia', icon: Icons.balance, text: '¿Qué parte del trabajo familiar y doméstico haces tú?', options: q31Options),
+  SurveyQuestion(id: 32, apartado: 'Apartado 5', subtitle: 'Equilibrio Trabajo y Familia', icon: Icons.balance, text: 'Si faltas algún día de casa, ¿las tareas domésticas se quedan sin hacer?'),
+  SurveyQuestion(id: 33, apartado: 'Apartado 5', subtitle: 'Equilibrio Trabajo y Familia', icon: Icons.balance, text: 'Cuando estás en la empresa ¿piensas en las tareas domésticas y familiares?'),
+  SurveyQuestion(id: 34, apartado: 'Apartado 5', subtitle: 'Equilibrio Trabajo y Familia', icon: Icons.balance, text: '¿Hay momentos en los que necesitarías estar en la empresa y en casa a la vez?'),
+
+  // Apartado 6: Estima
+  SurveyQuestion(id: 35, apartado: 'Apartado 6', subtitle: 'Estima y Reconocimiento', icon: Icons.verified_user_outlined, text: 'Mis superiores me dan el reconocimiento que merezco'),
+  SurveyQuestion(id: 36, apartado: 'Apartado 6', subtitle: 'Estima y Reconocimiento', icon: Icons.verified_user_outlined, text: 'En las situaciones difíciles en el trabajo recibo el apoyo necesario'),
+  SurveyQuestion(id: 37, apartado: 'Apartado 6', subtitle: 'Estima y Reconocimiento', icon: Icons.verified_user_outlined, text: 'En mi trabajo me tratan injustamente', inverted: true),
+  SurveyQuestion(id: 38, apartado: 'Apartado 6', subtitle: 'Estima y Reconocimiento', icon: Icons.verified_user_outlined, text: 'Pensando en mi esfuerzo, el reconocimiento que recibo me parece adecuado'),
+];
+
+
 class InitialSurveyScreen extends StatefulWidget {
   const InitialSurveyScreen({super.key});
 
@@ -10,55 +109,47 @@ class InitialSurveyScreen extends StatefulWidget {
 }
 
 class _InitialSurveyScreenState extends State<InitialSurveyScreen> {
-  final PageController _pageController = PageController();
   int _currentPage = 0;
   bool _isSubmitting = false;
-
-  // Respuestas del usuario (índice de pregunta a valor)
-  // Las preguntas van del 1 al 38 para coincidir con la nomenclatura del formulario.
-  Map<int, int> _answers = {};
-
-  // Opciones generales
-  final List<String> _generalOptions = [
-    'Nunca', // 0
-    'Sólo alguna vez', // 1
-    'Algunas veces', // 2
-    'Muchas veces', // 3
-    'Siempre', // 4
-  ];
-
-  // Opciones Apartado 3
-  final List<String> _preocupadoOptions = [
-    'Nada preocupado', // 0
-    'Poco preocupado', // 1
-    'Más o menos preocupado', // 2
-    'Bastante preocupado', // 3
-    'Muy preocupado', // 4
-  ];
-
-  void _nextPage() {
-    if (_currentPage < 5) {
-      _pageController.nextPage(
-          duration: const Duration(milliseconds: 300), curve: Curves.easeInOut);
-    } else {
-      _submitSurvey();
-    }
-  }
+  final Map<int, int> _answers = {};
 
   void _previousPage() {
     if (_currentPage > 0) {
-      _pageController.previousPage(
-          duration: const Duration(milliseconds: 300), curve: Curves.easeInOut);
+      setState(() {
+        _currentPage--;
+      });
+    }
+  }
+
+  void _onAnswered(int value) async {
+    final question = surveyQuestions[_currentPage];
+    
+    setState(() {
+      if (question.inverted) {
+        _answers[question.id] = 4 - value;
+      } else {
+        _answers[question.id] = value;
+      }
+    });
+
+    // Pequeña pausa para que se vea el glow de selección
+    await Future.delayed(const Duration(milliseconds: 350));
+    
+    if (mounted) {
+      if (_currentPage < surveyQuestions.length - 1) {
+        setState(() {
+          _currentPage++;
+        });
+      } else {
+        _submitSurvey();
+      }
     }
   }
 
   Future<void> _submitSurvey() async {
-    // Validar que estén todas las 38 preguntas respondidas
-    if (_answers.length < 38) {
+    if (_answers.length < surveyQuestions.length) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text('Por favor, responde todas las preguntas.'),
-            backgroundColor: Colors.orange),
+        const SnackBar(content: Text('Por favor, responde todas las preguntas.'), backgroundColor: Colors.orange),
       );
       return;
     }
@@ -66,7 +157,6 @@ class _InitialSurveyScreenState extends State<InitialSurveyScreen> {
     setState(() => _isSubmitting = true);
 
     try {
-      // Calcular puntajes por dimensión
       int dim1 = _calcSum(1, 6);
       int dim2 = _calcSum(7, 16);
       int dim3 = _calcSum(17, 20);
@@ -76,7 +166,6 @@ class _InitialSurveyScreenState extends State<InitialSurveyScreen> {
 
       final user = Supabase.instance.client.auth.currentUser;
       if (user != null) {
-        // Guardar resultados en initial_survey_results
         await Supabase.instance.client.schema('calmwork').from('initial_survey_results').insert({
           'employee_id': user.id,
           'dim1_score': dim1,
@@ -87,32 +176,23 @@ class _InitialSurveyScreenState extends State<InitialSurveyScreen> {
           'dim6_score': dim6,
         });
 
-        // Marcar al empleado como completado (y crearlo si es nuevo)
-        await Supabase.instance.client
-            .schema('calmwork')
-            .from('employees')
-            .upsert({
-              'id': user.id,
-              'has_completed_initial_survey': true
-            });
+        await Supabase.instance.client.schema('calmwork').from('employees').upsert({
+          'id': user.id,
+          'has_completed_initial_survey': true
+        });
       }
 
       if (mounted) {
-        Navigator.pushReplacement(
-            context, MaterialPageRoute(builder: (_) => const MainNavigator()));
+        Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const MainNavigator()));
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-              content: Text('Error al enviar: $e'),
-              backgroundColor: Colors.red),
+          SnackBar(content: Text('Error al enviar: $e'), backgroundColor: Colors.red),
         );
       }
     } finally {
-      if (mounted) {
-        setState(() => _isSubmitting = false);
-      }
+      if (mounted) setState(() => _isSubmitting = false);
     }
   }
 
@@ -124,297 +204,249 @@ class _InitialSurveyScreenState extends State<InitialSurveyScreen> {
     return sum;
   }
 
-  void _onAnswered(int questionIndex, int value, bool inverted) {
-    setState(() {
-      if (inverted) {
-        // Si es invertida, el valor visual (0,1,2,3,4) ya es el que corresponde porque
-        // las opciones siempre se muestran de "Nunca" a "Siempre".
-        // Espera, si es invertida: Siempre=0, Nunca=4.
-        // Si el usuario elige "Siempre" (index 4 en la lista normal), debemos guardar 0.
-        // Por tanto, value a guardar = 4 - index.
-        _answers[questionIndex] = 4 - value;
-      } else {
-        _answers[questionIndex] = value;
-      }
-    });
+  @override
+  Widget build(BuildContext context) {
+    final currentQ = surveyQuestions[_currentPage];
+    final progress = (_currentPage + 1) / surveyQuestions.length;
+
+    return Scaffold(
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0xFFE8F4F8), Colors.white],
+            stops: [0.0, 0.4],
+          ),
+        ),
+        child: SafeArea(
+          child: Column(
+            children: [
+              // Header animado
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 400),
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.9),
+                  boxShadow: [
+                    BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4))
+                  ],
+                ),
+                child: Column(
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Expanded(
+                          child: Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(8),
+                                decoration: BoxDecoration(
+                                  color: AppColors.primaryLight.withOpacity(0.2),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Icon(currentQ.icon, color: AppColors.primary, size: 24),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      currentQ.apartado,
+                                      style: const TextStyle(color: AppColors.textSecondary, fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 1.1),
+                                    ),
+                                    Text(
+                                      currentQ.subtitle,
+                                      style: const TextStyle(color: AppColors.primary, fontSize: 15, fontWeight: FontWeight.w800),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Text('${_currentPage + 1} / ${surveyQuestions.length}', style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.primary, fontSize: 16)),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    Stack(
+                      children: [
+                        Container(height: 8, decoration: BoxDecoration(color: AppColors.background, borderRadius: BorderRadius.circular(4))),
+                        AnimatedContainer(
+                          duration: const Duration(milliseconds: 300),
+                          curve: Curves.easeOut,
+                          height: 8,
+                          width: (MediaQuery.of(context).size.width * progress - 48) > 0 ? (MediaQuery.of(context).size.width * progress - 48) : 0,
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(colors: [AppColors.primaryLight, AppColors.primary]),
+                            borderRadius: BorderRadius.circular(4),
+                            boxShadow: [BoxShadow(color: AppColors.primary.withOpacity(0.4), blurRadius: 4, offset: const Offset(0, 2))],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+
+              // Reemplazamos AnimatedSwitcher por una transición tipo Typeform (Slide suave horizontal)
+              Expanded(
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 600),
+                  reverseDuration: const Duration(milliseconds: 400),
+                  layoutBuilder: (Widget? currentChild, List<Widget> previousChildren) {
+                    return Stack(
+                      alignment: Alignment.topCenter,
+                      children: <Widget>[
+                        ...previousChildren,
+                        if (currentChild != null) currentChild,
+                      ],
+                    );
+                  },
+                  transitionBuilder: (Widget child, Animation<double> animation) {
+                    final isEntering = child.key == ValueKey<int>(_currentPage);
+                    
+                    // Retrasamos el fade-in del widget nuevo para que el viejo tenga tiempo de irse
+                    // y no se vean sobrepuestos ni aparezca "de golpe".
+                    final fadeAnimation = CurvedAnimation(
+                      parent: animation,
+                      curve: isEntering ? const Interval(0.3, 1.0, curve: Curves.easeIn) : const Interval(0.4, 1.0, curve: Curves.easeOut),
+                    );
+
+                    return ScaleTransition(
+                      scale: Tween<double>(begin: 0.92, end: 1.0).animate(
+                        CurvedAnimation(parent: animation, curve: Curves.easeOutCubic)
+                      ),
+                      child: FadeTransition(
+                        opacity: fadeAnimation,
+                        child: child,
+                      ),
+                    );
+                  },
+                  child: _QuestionSlide(
+                    key: ValueKey<int>(_currentPage),
+                    question: currentQ,
+                    selectedValue: currentQ.inverted && _answers.containsKey(currentQ.id) ? 4 - _answers[currentQ.id]! : _answers[currentQ.id],
+                    onSelect: _onAnswered,
+                  ),
+                ),
+              ),
+
+              // Controles Inferiores (Eliminamos botón Continuar)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    IconButton(
+                      onPressed: _currentPage > 0 ? _previousPage : null,
+                      icon: Icon(Icons.arrow_back_ios_new, color: _currentPage > 0 ? AppColors.textSecondary : Colors.transparent),
+                    ),
+                    if (_isSubmitting)
+                      const CircularProgressIndicator(color: AppColors.primary)
+                    else 
+                      const SizedBox(width: 48), // Espaciador para centrar
+                  ],
+                ),
+              )
+            ],
+          ),
+        ),
+      ),
+    );
   }
+}
 
-  bool _canProceed() {
-    int start = 1;
-    int end = 6;
-    if (_currentPage == 1) { start = 7; end = 16; }
-    else if (_currentPage == 2) { start = 17; end = 20; }
-    else if (_currentPage == 3) { start = 21; end = 30; }
-    else if (_currentPage == 4) { start = 31; end = 34; }
-    else if (_currentPage == 5) { start = 35; end = 38; }
+class _QuestionSlide extends StatelessWidget {
+  final SurveyQuestion question;
+  final int? selectedValue;
+  final Function(int) onSelect;
 
-    for (int i = start; i <= end; i++) {
-      if (!_answers.containsKey(i)) return false;
-    }
-    return true;
+  const _QuestionSlide({
+    super.key,
+    required this.question,
+    required this.selectedValue,
+    required this.onSelect,
+  });
+
+  IconData _getIconForOption(int index, String text) {
+    text = text.toLowerCase();
+    if (text.contains('nunca') || text.contains('ninguna') || text.contains('nada')) return Icons.close;
+    if (text.contains('siempre') || text.contains('principal') || text.contains('muy')) return Icons.done_all;
+    if (text.contains('alguna') || text.contains('puntuales') || text.contains('poco')) return Icons.keyboard_arrow_right;
+    if (text.contains('muchas') || text.contains('mitad') || text.contains('bastante')) return Icons.keyboard_double_arrow_right;
+    return Icons.drag_handle; // neutral
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.background,
-      appBar: AppBar(
-        title: const Text('Cuestionario Inicial',
-            style: TextStyle(
-                color: AppColors.textPrimary, fontWeight: FontWeight.bold)),
-        backgroundColor: Colors.white,
-        elevation: 0,
-      ),
-      body: Column(
-        children: [
-          // ProgressBar
-          LinearProgressIndicator(
-            value: (_currentPage + 1) / 6,
-            backgroundColor: AppColors.primaryLight.withOpacity(0.3),
-            color: AppColors.primary,
-            minHeight: 8,
-          ),
-          Expanded(
-            child: PageView(
-              controller: _pageController,
-              physics: const NeverScrollableScrollPhysics(),
-              onPageChanged: (index) => setState(() => _currentPage = index),
-              children: [
-                _buildApartado1(),
-                _buildApartado2(),
-                _buildApartado3(),
-                _buildApartado4(),
-                _buildApartado5(),
-                _buildApartado6(),
-              ],
-            ),
-          ),
-          // Botones de Navegación
-          Container(
-            padding: const EdgeInsets.all(20),
-            color: Colors.white,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                if (_currentPage > 0)
-                  TextButton(
-                    onPressed: _isSubmitting ? null : _previousPage,
-                    child: const Text('Atrás',
-                        style: TextStyle(color: AppColors.textSecondary)),
-                  )
-                else
-                  const SizedBox(width: 60),
-                ElevatedButton(
-                  onPressed: (_isSubmitting || !_canProceed()) ? null : _nextPage,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primary,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 32, vertical: 12),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16)),
-                  ),
-                  child: _isSubmitting
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(
-                              color: Colors.white, strokeWidth: 2))
-                      : Text(_currentPage == 5 ? 'Finalizar' : 'Siguiente'),
-                ),
-              ],
-            ),
-          )
-        ],
-      ),
-    );
-  }
-
-  // Helpers para construir las preguntas
-  Widget _buildQuestionCard(int index, String question,
-      {bool inverted = false, List<String>? customOptions}) {
-    final options = customOptions ?? _generalOptions;
-    final int? currentValue = inverted && _answers.containsKey(index)
-        ? 4 - _answers[index]!
-        : _answers[index];
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-              color: Colors.black.withOpacity(0.05),
-              blurRadius: 10,
-              offset: const Offset(0, 4))
-        ],
-      ),
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(24),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text('$index. $question',
-              style: const TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 15,
-                  color: AppColors.textPrimary)),
-          const SizedBox(height: 12),
-          Column(
-            children: List.generate(options.length, (i) {
-              // Si es la pregunta 31 (customOptions), el valor directo es 4 - i (pues las opciones van de mayor a menor en el PDF)
-              // Pero manejaremos Q31 especialmente o mapearemos visualmente.
-              // Para simplificar, i va de 0 a 4 visualmente (abajo a arriba o arriba a abajo).
-              // En general options[0] es la opción con valor 0 (Nunca), options[4] es 4 (Siempre).
-              return RadioListTile<int>(
-                title: Text(options[i], style: const TextStyle(fontSize: 14)),
-                value: i,
-                groupValue: currentValue,
-                activeColor: AppColors.primary,
-                contentPadding: EdgeInsets.zero,
-                dense: true,
-                onChanged: (val) {
-                  if (val != null) _onAnswered(index, val, inverted);
-                },
-              );
-            }).toList(),
-          )
+          const SizedBox(height: 20),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(20),
+              boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 15, offset: const Offset(0, 5))],
+            ),
+            child: Text(
+              question.text,
+              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: AppColors.textPrimary, height: 1.3),
+              textAlign: TextAlign.center,
+            ),
+          ),
+          const SizedBox(height: 40),
+          ...List.generate(question.options.length, (index) {
+            final isSelected = selectedValue == index;
+            final optionText = question.options[index];
+            return GestureDetector(
+              onTap: () => onSelect(index),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 300),
+                margin: const EdgeInsets.only(bottom: 16),
+                padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 24),
+                decoration: BoxDecoration(
+                  color: isSelected ? AppColors.primary : Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: isSelected ? AppColors.primary : Colors.grey.shade200, width: 2),
+                  boxShadow: isSelected
+                      ? [BoxShadow(color: AppColors.primaryLight.withOpacity(0.6), blurRadius: 15, offset: const Offset(0, 4))]
+                      : [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 5)],
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      _getIconForOption(index, optionText),
+                      color: isSelected ? Colors.white : AppColors.primaryLight,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Text(
+                        optionText,
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                          color: isSelected ? Colors.white : AppColors.textPrimary,
+                        ),
+                      ),
+                    ),
+                    if (isSelected)
+                      const Icon(Icons.check_circle, color: Colors.white)
+                  ],
+                ),
+              ),
+            );
+          }),
         ],
       ),
     );
-  }
-
-  Widget _buildSection(String title, String subtitle, List<Widget> questions) {
-    return ListView(
-      padding: const EdgeInsets.all(20),
-      children: [
-        Text(title,
-            style: const TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.bold,
-                color: AppColors.primary)),
-        const SizedBox(height: 8),
-        Text(subtitle, style: const TextStyle(color: AppColors.textSecondary)),
-        const SizedBox(height: 24),
-        ...questions,
-      ],
-    );
-  }
-
-  Widget _buildApartado1() {
-    return _buildSection(
-        'Apartado 1', 'Elige una sola respuesta para cada pregunta:', [
-      _buildQuestionCard(1, '¿Tienes que trabajar muy rápido?'),
-      _buildQuestionCard(2,
-          '¿La distribución de tareas es irregular y provoca que se te acumule el trabajo?'),
-      _buildQuestionCard(3, '¿Tienes tiempo de llevar al día tu trabajo?',
-          inverted: true),
-      _buildQuestionCard(4, '¿Te cuesta olvidar los problemas del trabajo?'),
-      _buildQuestionCard(
-          5, '¿Tu trabajo, en general, es desgastador emocionalmente?'),
-      _buildQuestionCard(6, '¿Tu trabajo requiere que escondas tus emociones?'),
-    ]);
-  }
-
-  Widget _buildApartado2() {
-    return _buildSection(
-        'Apartado 2', 'Elige una sola respuesta para cada pregunta:', [
-      _buildQuestionCard(
-          7, '¿Tienes influencia sobre la cantidad de trabajo que se te asigna?'),
-      _buildQuestionCard(8,
-          '¿Se tiene en cuenta tu opinión cuando se te asignan tareas?'),
-      _buildQuestionCard(
-          9, '¿Tienes influencia sobre el orden en el que realizas las tareas?'),
-      _buildQuestionCard(10, '¿Puedes decidir cuándo haces un descanso?'),
-      _buildQuestionCard(11,
-          'Si tienes algún asunto personal o familiar ¿puedes dejar tu puesto de trabajo al menos una hora sin tener que pedir un permiso especial?'),
-      _buildQuestionCard(12, '¿Tu trabajo requiere que tengas iniciativa?'),
-      _buildQuestionCard(
-          13, '¿Tu trabajo permite que aprendas cosas nuevas?'),
-      _buildQuestionCard(14, '¿Te sientes comprometido con tu profesión?'),
-      _buildQuestionCard(15, '¿Tienen sentido tus tareas?'),
-      _buildQuestionCard(
-          16, '¿Hablas con entusiasmo de tu empresa a otras personas?'),
-    ]);
-  }
-
-  Widget _buildApartado3() {
-    return _buildSection('Apartado 3',
-        'En estos momentos, ¿estás preocupado/a por...', [
-      _buildQuestionCard(17,
-          '¿lo difícil que sería encontrar otro trabajo en el caso de que te quedaras en paro?',
-          customOptions: _preocupadoOptions),
-      _buildQuestionCard(18, '¿si te cambian de tareas contra tu voluntad?',
-          customOptions: _preocupadoOptions),
-      _buildQuestionCard(19,
-          '¿si te cambian el horario (turno, días de la semana, horas) contra tu voluntad?',
-          customOptions: _preocupadoOptions),
-      _buildQuestionCard(20,
-          '¿si te varían el salario (que no te lo actualicen, que te lo bajen, etc.)?',
-          customOptions: _preocupadoOptions),
-    ]);
-  }
-
-  Widget _buildApartado4() {
-    return _buildSection(
-        'Apartado 4', 'Elige una sola respuesta para cada pregunta:', [
-      _buildQuestionCard(
-          21, '¿Sabes exactamente qué margen de autonomía tienes en tu trabajo?'),
-      _buildQuestionCard(
-          22, '¿Sabes exactamente qué tareas son de tu responsabilidad?'),
-      _buildQuestionCard(23,
-          '¿En tu empresa se te informa con suficiente antelación de los cambios que pueden afectar tu futuro?'),
-      _buildQuestionCard(24,
-          '¿Recibes toda la información que necesitas para realizar bien tu trabajo?'),
-      _buildQuestionCard(
-          25, '¿Recibes ayuda y apoyo de tus compañeras o compañeros?'),
-      _buildQuestionCard(
-          26, '¿Recibes ayuda y apoyo de tu inmediato o inmediata superior?'),
-      _buildQuestionCard(27,
-          '¿Tu puesto de trabajo se encuentra aislado del de tus compañeros/as?',
-          inverted: true),
-      _buildQuestionCard(
-          28, 'En el trabajo, ¿sientes que formas parte de un grupo?'),
-      _buildQuestionCard(
-          29, '¿Tus actuales jefes inmediatos planifican bien el trabajo?'),
-      _buildQuestionCard(30,
-          '¿Tus actuales jefes inmediatos se comunican bien con los trabajadores y trabajadoras?'),
-    ]);
-  }
-
-  Widget _buildApartado5() {
-    // La Q31 es especial. Valores de 0 a 4 de forma directa, la opción 4 es la principal, etc.
-    final q31Options = [
-      'No hago ninguna o casi ninguna de estas tareas', // 0
-      'Sólo hago tareas muy puntuales', // 1
-      'Hago más o menos una cuarta parte', // 2
-      'Hago aproximadamente la mitad', // 3
-      'Soy la/el principal responsable (la mayor parte)', // 4
-    ];
-
-    return _buildSection(
-        'Apartado 5', 'De la siguiente pregunta, elige la respuesta que mejor describa tu situación:', [
-      _buildQuestionCard(31, '¿Qué parte del trabajo familiar y doméstico haces tú?',
-          customOptions: q31Options),
-      _buildQuestionCard(32,
-          'Si faltas algún día de casa, ¿las tareas domésticas que realizas se quedan sin hacer?'),
-      _buildQuestionCard(33,
-          'Cuando estás en la empresa ¿piensas en las tareas domésticas y familiares?'),
-      _buildQuestionCard(34,
-          '¿Hay momentos en los que necesitarías estar en la empresa y en casa a la vez?'),
-    ]);
-  }
-
-  Widget _buildApartado6() {
-    return _buildSection(
-        'Apartado 6', 'Elige una sola respuesta para cada pregunta:', [
-      _buildQuestionCard(35, 'Mis superiores me dan el reconocimiento que merezco'),
-      _buildQuestionCard(36,
-          'En las situaciones difíciles en el trabajo recibo el apoyo necesario'),
-      _buildQuestionCard(37, 'En mi trabajo me tratan injustamente',
-          inverted: true),
-      _buildQuestionCard(38,
-          'Si pienso en todo el trabajo y esfuerzo que he realizado, el reconocimiento que recibo en mi trabajo me parece adecuado'),
-    ]);
   }
 }

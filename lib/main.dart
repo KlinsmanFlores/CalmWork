@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:curved_navigation_bar/curved_navigation_bar.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'initial_survey.dart';
+import 'chat_screen.dart';
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -23,7 +25,13 @@ Future<String> submitAnonymousReport(String moduleTitle, Map<String, dynamic> an
     }
 
     // 2. Create report
-    final newReport = await supabase.schema('calmwork').from('reports').insert({'module_id': moduleId, 'status': 'new'}).select('id').single();
+    // Buscar el departamento del usuario para mantener el anonimato pero permitir segmentación
+    final user = Supabase.instance.client.auth.currentUser;
+    final userId = user?.id ?? 'anonymous';
+    final userRes = await supabase.schema('calmwork').from('employees').select('department').eq('id', userId).maybeSingle();
+    final userDept = (userRes != null && userRes['department'] != null) ? userRes['department'] : 'Desconocido';
+
+    final newReport = await supabase.schema('calmwork').from('reports').insert({'module_id': moduleId, 'status': 'new', 'department': userDept}).select('id').single();
 
     // 3. Get or create question
     final questionRes = await supabase.schema('calmwork').from('questions').select('id').eq('module_id', moduleId).eq('question_type', 'text').limit(1).maybeSingle();
@@ -44,8 +52,6 @@ Future<String> submitAnonymousReport(String moduleTitle, Map<String, dynamic> an
 
     // 5. Save local history
     final prefs = await SharedPreferences.getInstance();
-    final user = Supabase.instance.client.auth.currentUser;
-    final userId = user?.id ?? 'anonymous';
     final historyKey = 'history_$userId';
     
     List<String> historyList = prefs.getStringList(historyKey) ?? [];
@@ -221,55 +227,40 @@ class _SplashScreenState extends State<SplashScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.background,
-      body: SafeArea(
-        child: Column(
-          children: [
-            const Spacer(flex: 2),
-            // Logo placeholder (Shield)
-            Container(
-              width: 150,
-              height: 150,
-              decoration: BoxDecoration(
-                color: AppColors.primaryLight,
-                borderRadius: BorderRadius.circular(32),
-                boxShadow: [
-                  BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 20, offset: const Offset(0, 10))
-                ],
-              ),
-              child: const Icon(Icons.health_and_safety, size: 100, color: Colors.white),
+      body: Stack(
+        children: [
+          // Full screen gradient background
+          Container(
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(colors: [Color(0xFF4BA5B5), Color(0xFF246672)], begin: Alignment.topLeft, end: Alignment.bottomRight),
             ),
-            const SizedBox(height: 32),
-            // CalmWORK Title
-            RichText(
-              text: const TextSpan(
-                style: TextStyle(fontSize: 36, color: AppColors.primary),
+          ),
+          // Decorative circles (curves)
+          Positioned(top: -100, right: -50, child: Container(width: 300, height: 300, decoration: BoxDecoration(shape: BoxShape.circle, color: Colors.white.withOpacity(0.05)))),
+          Positioned(bottom: -50, left: -100, child: Container(width: 250, height: 250, decoration: BoxDecoration(shape: BoxShape.circle, color: Colors.white.withOpacity(0.05)))),
+          
+          SafeArea(
+            child: Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  TextSpan(text: 'Calm'),
-                  TextSpan(text: 'WORK', style: TextStyle(fontWeight: FontWeight.bold)),
+                  const Spacer(flex: 2),
+                  // Logo
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(32),
+                    child: Image.asset('assets/icon.png', width: 140, height: 140),
+                  ),
+                  const SizedBox(height: 24),
+                  RichText(text: const TextSpan(style: TextStyle(fontSize: 36, color: Colors.white), children: [TextSpan(text: 'Calm'), TextSpan(text: 'WORK', style: TextStyle(fontWeight: FontWeight.bold))])),
+                  const SizedBox(height: 8),
+                  const Text('Tu bienestar importa', style: TextStyle(fontSize: 16, color: Colors.white70, fontWeight: FontWeight.w500)),
+                  const Spacer(flex: 3),
+                  const Padding(padding: EdgeInsets.symmetric(horizontal: 40.0, vertical: 24.0), child: Text('Escuchamos, comprendemos y actuamos por ti', textAlign: TextAlign.center, style: TextStyle(fontSize: 14, color: Colors.white70, fontWeight: FontWeight.w500))),
                 ],
               ),
             ),
-            const SizedBox(height: 8),
-            const Text(
-              'Tu bienestar importa',
-              style: TextStyle(fontSize: 16, color: AppColors.primaryLight, fontWeight: FontWeight.w500),
-            ),
-            const SizedBox(height: 48),
-            // Heart Icon
-            const Icon(Icons.monitor_heart, size: 64, color: AppColors.primaryLight),
-            const Spacer(flex: 3),
-            // Footer Text
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 40.0, vertical: 24.0),
-              child: Text(
-                'Escuchamos, comprendemos y actuamos por ti',
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 14, color: AppColors.primaryLight, fontWeight: FontWeight.w500),
-              ),
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -364,135 +355,109 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.background,
-      body: SafeArea(
-        child: Column(
-          children: [
-            const SizedBox(height: 40),
-            // Header: Heart and Title
-            const Icon(Icons.monitor_heart, size: 60, color: AppColors.primaryLight),
-            const SizedBox(height: 16),
-            RichText(
-              text: const TextSpan(
-                style: TextStyle(fontSize: 32, color: AppColors.primary),
-                children: [
-                  TextSpan(text: 'Calm'),
-                  TextSpan(text: 'WORK', style: TextStyle(fontWeight: FontWeight.bold)),
-                ],
-              ),
+      body: Stack(
+        children: [
+          // Full screen gradient background
+          Container(
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(colors: [Color(0xFF4BA5B5), Color(0xFF246672)], begin: Alignment.topLeft, end: Alignment.bottomRight),
             ),
-            const SizedBox(height: 40),
-            // Form Card
-            Expanded(
-              child: Container(
-                margin: const EdgeInsets.symmetric(horizontal: 32.0),
-                padding: const EdgeInsets.all(24.0),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(24),
-                  boxShadow: [
-                    BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 20, offset: const Offset(0, 5))
-                  ],
-                ),
-                child: SingleChildScrollView(
+          ),
+          // Decorative circles
+          Positioned(top: -100, right: -50, child: Container(width: 300, height: 300, decoration: BoxDecoration(shape: BoxShape.circle, color: Colors.white.withOpacity(0.05)))),
+          Positioned(bottom: -50, left: -100, child: Container(width: 250, height: 250, decoration: BoxDecoration(shape: BoxShape.circle, color: Colors.white.withOpacity(0.05)))),
+          
+          SafeArea(
+            child: Center(
+              child: SingleChildScrollView(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 32.0),
                   child: Column(
-                    mainAxisSize: MainAxisSize.min,
+                    mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      // Email Field
-                      TextField(
-                        controller: _emailController,
-                        style: const TextStyle(color: Colors.white),
-                        cursorColor: Colors.white,
-                        keyboardType: TextInputType.emailAddress,
-                        decoration: InputDecoration(
-                          hintText: 'Correo electrónico',
-                          hintStyle: const TextStyle(color: Colors.white70),
-                          prefixIcon: const Icon(Icons.email, color: Colors.white70),
-                          filled: true,
-                          fillColor: AppColors.primaryLight,
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
-                          contentPadding: const EdgeInsets.symmetric(vertical: 16),
-                        ),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(20),
+                        child: Image.asset('assets/icon.png', width: 80, height: 80),
                       ),
                       const SizedBox(height: 16),
+                      const Text('¡Bienvenido de nuevo!', style: TextStyle(fontSize: 24, color: Colors.white, fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 8),
+                      const Text('Inicia sesión en CalmWORK', style: TextStyle(fontSize: 16, color: Colors.white70)),
+                      const SizedBox(height: 48),
+                      
+                      // Email Field (White rounded pill)
+                      TextField(
+                        controller: _emailController,
+                        style: const TextStyle(color: AppColors.primary),
+                        cursorColor: AppColors.primary,
+                        keyboardType: TextInputType.emailAddress,
+                        decoration: InputDecoration(
+                          hintText: 'tu correo electrónico',
+                          hintStyle: const TextStyle(color: Colors.black38),
+                          filled: true,
+                          fillColor: Colors.white,
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(30), borderSide: BorderSide.none),
+                          contentPadding: const EdgeInsets.symmetric(vertical: 18, horizontal: 24),
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 16),
+                      
                       // Password Field
                       TextField(
                         controller: _passwordController,
                         obscureText: _obscureText,
-                        style: const TextStyle(color: Colors.white),
-                        cursorColor: Colors.white,
+                        style: const TextStyle(color: AppColors.primary),
+                        cursorColor: AppColors.primary,
                         decoration: InputDecoration(
-                          hintText: 'Contraseña',
-                          hintStyle: const TextStyle(color: Colors.white70),
-                          prefixIcon: const Icon(Icons.lock, color: Colors.white70),
-                          suffixIcon: IconButton(
-                            icon: Icon(_obscureText ? Icons.visibility_off : Icons.visibility, color: Colors.white70),
-                            onPressed: () => setState(() => _obscureText = !_obscureText),
-                          ),
+                          hintText: 'tu contraseña',
+                          hintStyle: const TextStyle(color: Colors.black38),
                           filled: true,
-                          fillColor: AppColors.primaryLight,
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
-                          contentPadding: const EdgeInsets.symmetric(vertical: 16),
+                          fillColor: Colors.white,
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(30), borderSide: BorderSide.none),
+                          contentPadding: const EdgeInsets.symmetric(vertical: 18, horizontal: 24),
                         ),
+                        textAlign: TextAlign.center,
                       ),
-                      const SizedBox(height: 8),
-                      // Forgot password
-                      Align(
-                        alignment: Alignment.center,
-                        child: TextButton(
-                          onPressed: () {},
-                          child: const Text('¿Olvidaste tu contraseña?', style: TextStyle(color: AppColors.textPrimary, fontSize: 13)),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 32),
+                      
                       // Login Button
                       SizedBox(
                         width: double.infinity,
-                        height: 50,
                         child: ElevatedButton(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: AppColors.primary,
-                            foregroundColor: Colors.white,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                            elevation: 0,
-                          ),
                           onPressed: _isLoading ? null : _signIn,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.white,
+                            foregroundColor: AppColors.primary,
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                            elevation: 5,
+                          ),
                           child: _isLoading 
-                              ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white))
-                              : const Text('Iniciar Sesión', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                              ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: AppColors.primary, strokeWidth: 2))
+                              : const Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(Icons.arrow_forward_ios, size: 16),
+                                    SizedBox(width: 8),
+                                    Text('INGRESAR', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, letterSpacing: 1.2)),
+                                  ],
+                                ),
                         ),
                       ),
+                      
                       const SizedBox(height: 24),
-                      // Social Login
-                      const Text('O inicia sesión con:', style: TextStyle(color: AppColors.textPrimary, fontSize: 13)),
-                      const SizedBox(height: 16),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          _buildSocialButton(Icons.g_mobiledata, AppColors.primaryLight),
-                          const SizedBox(width: 16),
-                          _buildSocialButton(Icons.window, AppColors.primaryLight),
-                        ],
+                      TextButton(
+                        onPressed: _signUp,
+                        child: const Text('¿No tienes cuenta? Regístrate aquí', style: TextStyle(color: Colors.white70, fontSize: 14)),
                       ),
-                      const SizedBox(height: 24),
-                      const SizedBox(height: 24),
-                      // Solo iniciar sesión, no hay registro
                     ],
                   ),
                 ),
               ),
             ),
-            // Footer Text
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 40.0, vertical: 24.0),
-              child: Text(
-                'Escuchamos, comprendemos y actuamos por ti',
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 14, color: AppColors.primaryLight, fontWeight: FontWeight.w500),
-              ),
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -527,33 +492,34 @@ class _MainNavigatorState extends State<MainNavigator> {
   List<Widget> get _screens => [
     HomeScreen(onChatbotPressed: () => setState(() => _currentIndex = 2)),
     const HistoryScreen(),
-    const MockChatScreen(),
+    const ChatScreen(),
     const ProfileScreen(),
   ];
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: const Color(0xFFF4F7F9),
       body: _screens[_currentIndex],
-      bottomNavigationBar: Container(
-        decoration: BoxDecoration(
-          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, -5))],
-        ),
-        child: BottomNavigationBar(
-          currentIndex: _currentIndex,
-          onTap: (index) => setState(() => _currentIndex = index),
-          type: BottomNavigationBarType.fixed,
-          backgroundColor: Colors.white,
-          selectedItemColor: AppColors.primary,
-          unselectedItemColor: AppColors.textSecondary,
-          elevation: 0,
-          items: const [
-            BottomNavigationBarItem(icon: Icon(Icons.home_outlined), activeIcon: Icon(Icons.home), label: 'Inicio'),
-            BottomNavigationBarItem(icon: Icon(Icons.history_outlined), activeIcon: Icon(Icons.history), label: 'Historial'),
-            BottomNavigationBarItem(icon: Icon(Icons.chat_bubble_outline), activeIcon: Icon(Icons.chat_bubble), label: 'Asistente'),
-            BottomNavigationBarItem(icon: Icon(Icons.person_outline), activeIcon: Icon(Icons.person), label: 'Perfil'),
-          ],
-        ),
+      bottomNavigationBar: CurvedNavigationBar(
+        index: _currentIndex,
+        height: 60.0,
+        color: Colors.white,
+        buttonBackgroundColor: AppColors.primary,
+        backgroundColor: Colors.transparent,
+        animationCurve: Curves.easeInOutBack,
+        animationDuration: const Duration(milliseconds: 400),
+        onTap: (index) {
+          setState(() {
+            _currentIndex = index;
+          });
+        },
+        items: [
+          Icon(Icons.home_outlined, size: 28, color: _currentIndex == 0 ? Colors.white : AppColors.primary),
+          Icon(Icons.history_outlined, size: 28, color: _currentIndex == 1 ? Colors.white : AppColors.primary),
+          Icon(Icons.chat_bubble_outline, size: 28, color: _currentIndex == 2 ? Colors.white : AppColors.primary),
+          Icon(Icons.person_outline, size: 28, color: _currentIndex == 3 ? Colors.white : AppColors.primary),
+        ],
       ),
     );
   }
@@ -567,129 +533,192 @@ class HomeScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.background,
-      floatingActionButton: FloatingActionButton(
-        onPressed: onChatbotPressed ?? () {},
-        backgroundColor: AppColors.primaryLight,
-        elevation: 6,
-        child: const Icon(Icons.support_agent, color: Colors.white, size: 32),
+      backgroundColor: const Color(0xFFF4F7F9),
+      floatingActionButton: Padding(
+        padding: const EdgeInsets.only(bottom: 70.0),
+        child: FloatingActionButton.extended(
+          onPressed: onChatbotPressed ?? () {},
+          backgroundColor: AppColors.primary,
+          elevation: 4,
+          icon: const Icon(Icons.support_agent, color: Colors.white),
+          label: const Text('Asistente', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        ),
       ),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.only(left: 20, right: 20, top: 20, bottom: 100),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // Header
-              Row(
+      body: Column(
+        children: [
+          // Cabecera compacta
+          Container(
+            padding: const EdgeInsets.only(left: 20, right: 20, top: 0, bottom: 24),
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                colors: [AppColors.primary, AppColors.primaryLight],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.only(
+                bottomLeft: Radius.circular(32),
+                bottomRight: Radius.circular(32),
+              ),
+            ),
+            child: SafeArea(
+              bottom: false,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: AppColors.primary,
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: const Icon(Icons.monitor_heart, color: Colors.white, size: 40),
-                  ),
-                  const SizedBox(width: 12),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                  const SizedBox(height: 16),
+                  Row(
                     children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(10),
+                        child: Image.asset('assets/icon.png', width: 36, height: 36),
+                      ),
+                      const SizedBox(width: 12),
                       RichText(
                         text: const TextSpan(
-                          style: TextStyle(fontSize: 24, color: AppColors.primary),
+                          style: TextStyle(fontSize: 22, color: Colors.white),
                           children: [
                             TextSpan(text: 'Calm'),
                             TextSpan(text: 'WORK', style: TextStyle(fontWeight: FontWeight.bold)),
                           ],
                         ),
                       ),
-                      const Text('Tu bienestar importa', style: TextStyle(color: AppColors.primaryLight, fontWeight: FontWeight.w500)),
                     ],
-                  )
-                ],
-              ),
-              const SizedBox(height: 32),
-              // Salutation
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text('Hola, ¿cómo te sientes hoy?', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: AppColors.primary)),
-                        const SizedBox(height: 8),
-                        const Text('Selecciona la opción que mejor describa lo que estás viviendo.', style: TextStyle(color: AppColors.primary, fontSize: 14)),
-                      ],
-                    ),
                   ),
-                  const SizedBox(width: 16),
-                  const Icon(Icons.self_improvement, size: 80, color: Color(0xFFE59866)),
+                  const SizedBox(height: 16),
+                  const Text('Hola, ¿cómo te sientes hoy?', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white)),
+                  const SizedBox(height: 4),
+                  const Text('Selecciona un módulo. Es estrictamente confidencial.', style: TextStyle(color: Colors.white70, fontSize: 13)),
                 ],
               ),
-              const SizedBox(height: 32),
-              // Grid of modules
-              Row(
-                children: [
-                  Expanded(child: _buildModuleCard('SOBRECARGA LABORAL', 'Exceso de tareas y carga de trabajo', Icons.inventory_2, const Color(0xFFFDE8D4), AppColors.textPrimary, onTap: () {
-                    Navigator.push(context, MaterialPageRoute(builder: (context) => const SobrecargaScreen()));
-                  })),
-                  const SizedBox(width: 12),
-                  Expanded(child: _buildModuleCard('ACOSO LABORAL', 'Situaciones de hostigamiento o maltrato', Icons.record_voice_over, const Color(0xFFE8C4FA), AppColors.textPrimary, onTap: () {
-                    Navigator.push(context, MaterialPageRoute(builder: (context) => const AcosoScreen()));
-                  })),
-                ],
+            ),
+          ),
+            
+            // Cuadrícula expandida (ajustada a la pantalla)
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 80), // Padding inferior para el FAB
+                child: Column(
+                  children: [
+                    Expanded(
+                      child: Row(
+                        children: [
+                          Expanded(child: _buildGridCard(context, 'Sobrecarga\nLaboral', 'Exceso de tareas', Icons.work_history_outlined, Colors.blueGrey, () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SobrecargaScreen())))),
+                          const SizedBox(width: 12),
+                          Expanded(child: _buildGridCard(context, 'Acoso\nLaboral', 'Hostigamiento', Icons.record_voice_over_outlined, Colors.deepPurpleAccent, () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AcosoScreen())))),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Expanded(
+                      child: Row(
+                        children: [
+                          Expanded(child: _buildGridCard(context, 'Discriminación\ny Exclusión', 'Trato desigual', Icons.groups_outlined, Colors.redAccent, () => Navigator.push(context, MaterialPageRoute(builder: (_) => const DiscriminacionScreen())))),
+                          const SizedBox(width: 12),
+                          Expanded(child: _buildGridCard(context, 'Problemas\nPersonales', 'Factores externos', Icons.psychology_outlined, Colors.orangeAccent, () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ProblemasPersonalesScreen())))),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Expanded(
+                      child: Row(
+                        children: [
+                          const Expanded(flex: 1, child: SizedBox()),
+                          Expanded(flex: 2, child: _buildGridCard(context, 'Sugerencias\ny Mejoras', 'Aporta tus ideas', Icons.lightbulb_outline, Colors.teal, () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SugerenciasScreen())))),
+                          const Expanded(flex: 1, child: SizedBox()),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(child: _buildModuleCard('DISCRIMINACIÓN Y EXCLUSIÓN', 'Trato desigual o exclusión laboral.', Icons.groups, const Color(0xFFFF6B6B), Colors.white, onTap: () {
-                    Navigator.push(context, MaterialPageRoute(builder: (context) => const DiscriminacionScreen()));
-                  })),
-                  const SizedBox(width: 12),
-                  Expanded(child: _buildModuleCard('PROBLEMAS PERSONALES', 'Situaciones personales que afectan el trabajo.', Icons.psychology, const Color(0xFFFDCB61), AppColors.textPrimary, onTap: () {
-                    Navigator.push(context, MaterialPageRoute(builder: (context) => const ProblemasPersonalesScreen()));
-                  })),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  const Expanded(flex: 1, child: SizedBox()),
-                  Expanded(flex: 2, child: _buildModuleCard('SUGERENCIAS Y MEJORAS', 'Ideas para mejorar el ambiente laboral.', Icons.lightbulb_outline, const Color(0xFFBFFC6F), AppColors.textPrimary, onTap: () {
-                    Navigator.push(context, MaterialPageRoute(builder: (context) => const SugerenciasScreen()));
-                  })),
-                  const Expanded(flex: 1, child: SizedBox()),
-                ],
-              ),
-            ],
+            ),
+          ],
+        ),
+    );
+  }
+
+  Widget _buildGridCard(BuildContext context, String title, String subtitle, IconData icon, Color accentColor, VoidCallback onTap) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 10, offset: const Offset(0, 4))],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(24),
+          onTap: onTap,
+          splashColor: accentColor.withOpacity(0.1),
+          highlightColor: accentColor.withOpacity(0.05),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: accentColor.withOpacity(0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: BreathingIcon(icon: icon, color: accentColor, size: 32),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  title,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppColors.textPrimary, height: 1.2),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  subtitle,
+                  textAlign: TextAlign.center,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 11, color: AppColors.textSecondary),
+                ),
+              ],
+            ),
           ),
         ),
       ),
     );
   }
+}
 
-  Widget _buildModuleCard(String title, String subtitle, IconData icon, Color bgColor, Color textColor, {VoidCallback? onTap}) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: bgColor,
-          borderRadius: BorderRadius.circular(20),
-          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4))],
-        ),
-        child: Column(
-          children: [
-            Text(title, textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: textColor)),
-            const SizedBox(height: 12),
-            Icon(icon, size: 40, color: textColor),
-            const SizedBox(height: 12),
-            Text(subtitle, textAlign: TextAlign.center, style: TextStyle(fontSize: 11, color: textColor)),
-          ],
-        ),
-      ),
+class BreathingIcon extends StatefulWidget {
+  final IconData icon;
+  final Color color;
+  final double size;
+  
+  const BreathingIcon({super.key, required this.icon, required this.color, this.size = 36});
+
+  @override
+  State<BreathingIcon> createState() => _BreathingIconState();
+}
+
+class _BreathingIconState extends State<BreathingIcon> with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(vsync: this, duration: const Duration(seconds: 2))
+      ..repeat(reverse: true);
+  }
+  
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ScaleTransition(
+      scale: Tween<double>(begin: 0.90, end: 1.10).animate(CurvedAnimation(parent: _controller, curve: Curves.easeInOut)),
+      child: Icon(widget.icon, color: widget.color, size: widget.size),
     );
   }
 }
@@ -733,59 +762,101 @@ class _HistoryScreenState extends State<HistoryScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.background,
-      appBar: AppBar(title: const Text('Mis Reportes', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold)), backgroundColor: Colors.white, elevation: 0),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator(color: AppColors.primary))
-          : _history.isEmpty
-              ? const Center(
-                  child: Padding(
-                    padding: EdgeInsets.all(32.0),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.history_toggle_off, size: 80, color: Colors.black12),
-                        SizedBox(height: 16),
-                        Text('No has enviado ningún reporte', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
-                        SizedBox(height: 8),
-                        Text('Tus reportes enviados aparecerán aquí de forma privada.', textAlign: TextAlign.center, style: TextStyle(color: AppColors.textSecondary)),
-                      ],
-                    ),
-                  ),
-                )
-              : ListView.builder(
-                  padding: const EdgeInsets.all(16),
-                  itemCount: _history.length,
-                  itemBuilder: (context, index) {
-                    final report = _history[index];
-                    final dateStr = report['date'] as String;
-                    final date = DateTime.tryParse(dateStr);
-                    final formattedDate = date != null ? '${date.day}/${date.month}/${date.year} ${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}' : dateStr;
-
-                    return Card(
-                      elevation: 2,
-                      margin: const EdgeInsets.only(bottom: 12),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                      child: ListTile(
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                        leading: Container(
-                          padding: const EdgeInsets.all(10),
-                          decoration: BoxDecoration(
-                            color: AppColors.primaryLight.withOpacity(0.2),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: const Icon(Icons.check_circle_outline, color: AppColors.primary),
-                        ),
-                        title: Text(report['module'] ?? 'Reporte', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                        subtitle: Padding(
-                          padding: const EdgeInsets.only(top: 6.0),
-                          child: Text('Enviado el $formattedDate', style: const TextStyle(fontSize: 12)),
-                        ),
-                        trailing: const Icon(Icons.privacy_tip, color: Colors.black26),
-                      ),
-                    );
-                  },
+      backgroundColor: const Color(0xFFF4F7F9),
+      body: Stack(
+        children: [
+          // Header Gradient
+          Container(
+            height: MediaQuery.of(context).size.height * 0.35,
+            width: double.infinity,
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                colors: [AppColors.primary, AppColors.primaryLight],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+            ),
+            child: const SafeArea(
+              child: Align(
+                alignment: Alignment.topCenter,
+                child: Padding(
+                  padding: EdgeInsets.only(top: 20),
+                  child: Text('Mis Reportes', style: TextStyle(fontSize: 22, color: Colors.white, fontWeight: FontWeight.bold)),
                 ),
+              ),
+            ),
+          ),
+          // Decorative circles
+          Positioned(top: -50, right: -50, child: Container(width: 150, height: 150, decoration: BoxDecoration(shape: BoxShape.circle, color: Colors.white.withOpacity(0.1)))),
+          Positioned(top: 100, left: -30, child: Container(width: 100, height: 100, decoration: BoxDecoration(shape: BoxShape.circle, color: Colors.white.withOpacity(0.1)))),
+          // Main Content Card
+          SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.only(top: 70, left: 16, right: 16, bottom: 80),
+              child: Container(
+                width: double.infinity,
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(32),
+                  boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 20, offset: const Offset(0, 10))],
+                ),
+                child: _isLoading
+                    ? const Center(child: CircularProgressIndicator(color: AppColors.primary))
+                    : _history.isEmpty
+                        ? const Center(
+                            child: Padding(
+                              padding: EdgeInsets.all(32.0),
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(Icons.history_toggle_off, size: 80, color: Colors.black12),
+                                  SizedBox(height: 16),
+                                  Text('No has enviado ningún reporte', textAlign: TextAlign.center, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
+                                  SizedBox(height: 8),
+                                  Text('Tus reportes enviados aparecerán aquí de forma privada.', textAlign: TextAlign.center, style: TextStyle(color: AppColors.textSecondary)),
+                                ],
+                              ),
+                            ),
+                          )
+                        : ListView.builder(
+                            padding: const EdgeInsets.all(20),
+                            itemCount: _history.length,
+                            itemBuilder: (context, index) {
+                              final report = _history[index];
+                              final dateStr = report['date'] as String;
+                              final date = DateTime.tryParse(dateStr);
+                              final formattedDate = date != null ? '${date.day}/${date.month}/${date.year} ${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}' : dateStr;
+
+                              return Card(
+                                elevation: 0,
+                                color: const Color(0xFFF4F7F9),
+                                margin: const EdgeInsets.only(bottom: 12),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                                child: ListTile(
+                                  contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                                  leading: Container(
+                                    padding: const EdgeInsets.all(10),
+                                    decoration: BoxDecoration(
+                                      color: AppColors.primaryLight.withOpacity(0.2),
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: const Icon(Icons.check_circle_outline, color: AppColors.primary),
+                                  ),
+                                  title: Text(report['module'] ?? 'Reporte', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                                  subtitle: Padding(
+                                    padding: const EdgeInsets.only(top: 4.0),
+                                    child: Text('Enviado el $formattedDate', style: const TextStyle(fontSize: 12)),
+                                  ),
+                                  trailing: const Icon(Icons.privacy_tip, color: Colors.black26),
+                                ),
+                              );
+                            },
+                          ),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -972,58 +1043,117 @@ class _ProfileScreenState extends State<ProfileScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Perfil', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold)), backgroundColor: Colors.white, elevation: 0),
+      backgroundColor: const Color(0xFFF4F7F9),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator(color: AppColors.primary))
-          : ListView(
-              padding: const EdgeInsets.all(20),
+          : Stack(
               children: [
-                Center(
-                  child: CircleAvatar(
-                    radius: 50,
-                    backgroundColor: AppColors.primaryLight,
-                    child: Text(
-                      _initials,
-                      style: const TextStyle(fontSize: 32, color: Colors.white, fontWeight: FontWeight.bold),
+                // Header Gradient
+                Container(
+                  height: MediaQuery.of(context).size.height * 0.35,
+                  width: double.infinity,
+                  decoration: const BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [AppColors.primary, AppColors.primaryLight],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                  ),
+                  child: const SafeArea(
+                    child: Align(
+                      alignment: Alignment.topCenter,
+                      child: Padding(
+                        padding: EdgeInsets.only(top: 20),
+                        child: Text('Perfil', style: TextStyle(fontSize: 22, color: Colors.white, fontWeight: FontWeight.bold)),
+                      ),
                     ),
                   ),
                 ),
-                const SizedBox(height: 16),
-                Center(child: Text(_fullName, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: AppColors.textPrimary))),
-                Center(child: Text(_email, style: const TextStyle(color: AppColors.textSecondary))),
-                const SizedBox(height: 40),
-                ListTile(
-                  leading: const Icon(Icons.settings_outlined, color: AppColors.textPrimary),
-                  title: const Text('Configuración', style: TextStyle(fontWeight: FontWeight.bold)),
-                  trailing: const Icon(Icons.arrow_forward_ios, size: 16, color: AppColors.textSecondary),
-                  onTap: () {},
+                // Decorative circles on Header
+                Positioned(
+                  top: -50,
+                  right: -50,
+                  child: Container(
+                    width: 150,
+                    height: 150,
+                    decoration: BoxDecoration(shape: BoxShape.circle, color: Colors.white.withOpacity(0.1)),
+                  ),
                 ),
-                const Divider(),
-                ListTile(
-                  leading: const Icon(Icons.security_outlined, color: AppColors.textPrimary),
-                  title: const Text('Privacidad y Anonimato', style: TextStyle(fontWeight: FontWeight.bold)),
-                  trailing: const Icon(Icons.arrow_forward_ios, size: 16, color: AppColors.textSecondary),
-                  onTap: () {},
+                Positioned(
+                  top: 100,
+                  left: -30,
+                  child: Container(
+                    width: 100,
+                    height: 100,
+                    decoration: BoxDecoration(shape: BoxShape.circle, color: Colors.white.withOpacity(0.1)),
+                  ),
                 ),
-                const Divider(),
-                ListTile(
-                  leading: const Icon(Icons.help_outline, color: AppColors.textPrimary),
-                  title: const Text('Centro de Ayuda', style: TextStyle(fontWeight: FontWeight.bold)),
-                  trailing: const Icon(Icons.arrow_forward_ios, size: 16, color: AppColors.textSecondary),
-                  onTap: () {},
-                ),
-                const Divider(),
-                const SizedBox(height: 24),
-                ListTile(
-                  leading: const Icon(Icons.exit_to_app, color: Colors.red),
-                  title: const Text('Cerrar Sesión', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
-                  onTap: () {
-                    Supabase.instance.client.auth.signOut();
-                    Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const LoginScreen()));
-                  },
+                // Main Content Card
+                SafeArea(
+                  child: Padding(
+                    padding: const EdgeInsets.only(top: 70, left: 16, right: 16, bottom: 80),
+                    child: Container(
+                      width: double.infinity,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(32),
+                        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 20, offset: const Offset(0, 10))],
+                      ),
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 30),
+                        child: Column(
+                          children: [
+                            // Avatar
+                            CircleAvatar(
+                              radius: 45,
+                              backgroundColor: AppColors.primaryLight.withOpacity(0.2),
+                              child: Text(
+                                _initials,
+                                style: const TextStyle(fontSize: 28, color: AppColors.primary, fontWeight: FontWeight.bold),
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            Text(_fullName, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
+                            const SizedBox(height: 4),
+                            Text(_email, style: const TextStyle(color: AppColors.textSecondary, fontSize: 13)),
+                            const SizedBox(height: 32),
+                            
+                            // Settings section
+                            _buildSettingCard(Icons.settings_outlined, 'Configuración', () {}),
+                            const SizedBox(height: 12),
+                            _buildSettingCard(Icons.security_outlined, 'Privacidad y Anonimato', () {}),
+                            const SizedBox(height: 12),
+                            _buildSettingCard(Icons.help_outline, 'Centro de Ayuda', () {}),
+                            const SizedBox(height: 12),
+                            _buildSettingCard(Icons.exit_to_app, 'Cerrar Sesión', () {
+                               Supabase.instance.client.auth.signOut();
+                               Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const LoginScreen()));
+                            }, isDestructive: true),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
                 ),
               ],
             ),
+    );
+  }
+
+  Widget _buildSettingCard(IconData icon, String title, VoidCallback onTap, {bool isDestructive = false}) {
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFFF4F7F9),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: ListTile(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+        leading: Icon(icon, color: isDestructive ? Colors.redAccent : AppColors.primary, size: 24),
+        title: Text(title, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: isDestructive ? Colors.redAccent : AppColors.textPrimary)),
+        trailing: const Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        onTap: onTap,
+      ),
     );
   }
 }
