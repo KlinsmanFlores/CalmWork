@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'local_db_service.dart';
+import 'supabase_service.dart';
 import 'main.dart';
 
 // Opciones generales
@@ -164,23 +165,18 @@ class _InitialSurveyScreenState extends State<InitialSurveyScreen> {
       int dim5 = _calcSum(31, 34);
       int dim6 = _calcSum(35, 38);
 
-      final user = Supabase.instance.client.auth.currentUser;
-      if (user != null) {
-        await Supabase.instance.client.schema('calmwork').from('initial_survey_results').insert({
-          'employee_id': user.id,
-          'dim1_score': dim1,
-          'dim2_score': dim2,
-          'dim3_score': dim3,
-          'dim4_score': dim4,
-          'dim5_score': dim5,
-          'dim6_score': dim6,
-        });
+      final user = await SupabaseService.instance.getCurrentUser();
+      final employeeId = user?['id']?.toString() ?? 'usr_demo_1';
 
-        await Supabase.instance.client.schema('calmwork').from('employees').upsert({
-          'id': user.id,
-          'has_completed_initial_survey': true
-        });
-      }
+      await SupabaseService.instance.saveInitialSurvey(
+        employeeId: employeeId,
+        dim1: dim1,
+        dim2: dim2,
+        dim3: dim3,
+        dim4: dim4,
+        dim5: dim5,
+        dim6: dim6,
+      );
 
       if (mounted) {
         Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const MainNavigator()));

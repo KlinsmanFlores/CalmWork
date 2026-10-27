@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:curved_navigation_bar/curved_navigation_bar.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'local_db_service.dart';
+import 'supabase_service.dart';
 import 'initial_survey.dart';
 import 'chat_screen.dart';
 import 'dart:convert';
@@ -9,56 +11,24 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 Future<String> submitAnonymousReport(String moduleTitle, Map<String, dynamic> answers) async {
   try {
-    final supabase = SupabaseClient(
-      dotenv.env['SUPABASE_URL'] ?? '',
-      dotenv.env['SUPABASE_ANON_KEY'] ?? '',
+    final user = await SupabaseService.instance.getCurrentUser();
+    final userId = user?['id']?.toString() ?? 'anonymous';
+    final userDept = user?['department']?.toString() ?? 'Operaciones';
+
+    final reportId = await SupabaseService.instance.saveAnonymousReport(
+      moduleTitle: moduleTitle,
+      answers: answers,
+      department: userDept,
     );
 
-    // 1. Get or create module
-    final moduleRes = await supabase.schema('calmwork').from('modules').select('id').eq('title', moduleTitle).limit(1).maybeSingle();
-    String moduleId;
-    if (moduleRes == null) {
-      final newModule = await supabase.schema('calmwork').from('modules').insert({'title': moduleTitle, 'icon_name': 'AlertTriangle', 'color_hex': '#e2e8f0'}).select('id').single();
-      moduleId = newModule['id'];
-    } else {
-      moduleId = moduleRes['id'];
-    }
-
-    // 2. Create report
-    // Buscar el departamento del usuario para mantener el anonimato pero permitir segmentación
-    final user = Supabase.instance.client.auth.currentUser;
-    final userId = user?.id ?? 'anonymous';
-    final userRes = await supabase.schema('calmwork').from('employees').select('department').eq('id', userId).maybeSingle();
-    final userDept = (userRes != null && userRes['department'] != null) ? userRes['department'] : 'Desconocido';
-
-    final newReport = await supabase.schema('calmwork').from('reports').insert({'module_id': moduleId, 'status': 'new', 'department': userDept}).select('id').single();
-
-    // 3. Get or create question
-    final questionRes = await supabase.schema('calmwork').from('questions').select('id').eq('module_id', moduleId).eq('question_type', 'text').limit(1).maybeSingle();
-    String questionId;
-    if (questionRes == null) {
-      final newQuestion = await supabase.schema('calmwork').from('questions').insert({'module_id': moduleId, 'question_text': 'Respuestas Consolidadas del Formulario', 'question_type': 'text'}).select('id').single();
-      questionId = newQuestion['id'];
-    } else {
-      questionId = questionRes['id'];
-    }
-
-    // 4. Save answers
-    await supabase.schema('calmwork').from('report_answers').insert({
-      'report_id': newReport['id'],
-      'question_id': questionId,
-      'selected_options': answers
-    });
-
-    // 5. Save local history
+    // Save local history in SharedPreferences
     final prefs = await SharedPreferences.getInstance();
     final historyKey = 'history_$userId';
     
     List<String> historyList = prefs.getStringList(historyKey) ?? [];
     
-    // Add new report to history
     final reportEntry = {
-      'id': newReport['id'],
+      'id': reportId,
       'module': moduleTitle,
       'date': DateTime.now().toIso8601String(),
     };
@@ -68,7 +38,7 @@ Future<String> submitAnonymousReport(String moduleTitle, Map<String, dynamic> an
 
     return 'ok';
   } catch (e) {
-    debugPrint('Error submitting report to Supabase: $e');
+    debugPrint('Error saving report: $e');
     return e.toString();
   }
 }
@@ -85,24 +55,7 @@ List<String> globalCompanyAreas = [
 ];
 
 Future<void> fetchCompanyAreas() async {
-  try {
-    final supabase = SupabaseClient(
-      dotenv.env['SUPABASE_URL'] ?? '',
-      dotenv.env['SUPABASE_ANON_KEY'] ?? '',
-    );
-    final res = await supabase.schema('calmwork').from('employees').select('department');
-    final Set<String> areas = Set.from(globalCompanyAreas);
-    for (var row in res) {
-      if (row['department'] != null && row['department'].toString().trim().isNotEmpty) {
-        areas.add(row['department'].toString().trim());
-      }
-    }
-    final list = areas.toList();
-    list.sort();
-    globalCompanyAreas = list;
-  } catch (e) {
-    debugPrint('Error fetching areas: $e');
-  }
+  // Las áreas estándar ya están disponibles localmente
 }
 
 void showSuccessDialog(BuildContext context) {
@@ -155,17 +108,36 @@ void showSuccessDialog(BuildContext context) {
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   
-  // 1. Cargar variables de entorno (.env)
-  await dotenv.load(fileName: ".env");
+  // 1. Cargar variables de entorno (.env) si existen
+  try {
+    await dotenv.load(fileName: ".env");
+  } catch (_) {}
 
-  // 2. Inicializar conexión a Supabase
-  await Supabase.initialize(
-    url: dotenv.env['SUPABASE_URL'] ?? '',
-    anonKey: dotenv.env['SUPABASE_ANON_KEY'] ?? '',
-  );
-  
-  // 3. Fetch areas
-  fetchCompanyAreas();
+  // 2. Inicializar base de datos local SQLite (para soporte offline y cache)
+  try {
+    await LocalDbService.instance.database;
+  } catch (e) {
+    debugPrint('Error inicializando SQLite local: $e');
+  }
+
+  // 3. Inicializar Supabase si las credenciales están configuradas
+  final supabaseUrl = dotenv.env['SUPABASE_URL'];
+  final supabaseAnonKey = dotenv.env['SUPABASE_ANON_KEY'] ?? dotenv.env['SUPABASE_PUBLISHABLE_KEY'];
+  if (supabaseUrl != null &&
+      supabaseAnonKey != null &&
+      supabaseUrl.isNotEmpty &&
+      supabaseAnonKey.isNotEmpty &&
+      !supabaseUrl.contains('placeholder')) {
+    try {
+      await Supabase.initialize(
+        url: supabaseUrl,
+        anonKey: supabaseAnonKey,
+      );
+      debugPrint('Supabase inicializado correctamente.');
+    } catch (e) {
+      debugPrint('Aviso: Supabase no pudo inicializarse ($e). Se usará SQLite local.');
+    }
+  }
 
   runApp(const SicoApp());
 }
@@ -278,44 +250,30 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _obscureText = true;
   bool _isLoading = false;
   
-  final _emailController = TextEditingController();
-  final _passwordController = TextEditingController();
+  final _emailController = TextEditingController(text: 'colaborador@calmwork.com');
+  final _passwordController = TextEditingController(text: '123456');
 
   Future<void> _signIn() async {
     if (_emailController.text.isEmpty || _passwordController.text.isEmpty) return;
     setState(() => _isLoading = true);
     try {
-      final res = await Supabase.instance.client.auth.signInWithPassword(
-        email: _emailController.text.trim(),
-        password: _passwordController.text,
+      final user = await SupabaseService.instance.signIn(
+        _emailController.text.trim(),
+        _passwordController.text,
       );
-      
-      final user = res.user;
-      if (user != null) {
-        // Consultar has_completed_initial_survey
-        final employeeRes = await Supabase.instance.client
-            .schema('calmwork')
-            .from('employees')
-            .select('has_completed_initial_survey')
-            .eq('id', user.id)
-            .maybeSingle();
-            
-        bool hasCompleted = false;
-        if (employeeRes != null && employeeRes['has_completed_initial_survey'] == true) {
-          hasCompleted = true;
-        }
 
-        if (mounted) {
-          if (hasCompleted) {
-            Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const MainNavigator()));
-          } else {
-            Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const InitialSurveyScreen()));
-          }
+      final hasCompleted = (user['has_completed_initial_survey'] == 1);
+
+      if (mounted) {
+        if (hasCompleted) {
+          Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const MainNavigator()));
+        } else {
+          Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const InitialSurveyScreen()));
         }
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e'), backgroundColor: Colors.red));
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -329,16 +287,16 @@ class _LoginScreenState extends State<LoginScreen> {
     }
     setState(() => _isLoading = true);
     try {
-      await Supabase.instance.client.auth.signUp(
+      await SupabaseService.instance.signUp(
         email: _emailController.text.trim(),
         password: _passwordController.text,
       );
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('¡Registro exitoso! Ahora inicia sesión.'), backgroundColor: Colors.green));
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('¡Registro exitoso! Ahora puedes iniciar sesión.'), backgroundColor: Colors.green));
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error al registrar: $e'), backgroundColor: Colors.red));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e'), backgroundColor: Colors.red));
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -744,8 +702,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
   Future<void> _loadHistory() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final user = Supabase.instance.client.auth.currentUser;
-      final userId = user?.id ?? 'anonymous';
+      final user = await SupabaseService.instance.getCurrentUser();
+      final userId = user?['id']?.toString() ?? 'anonymous';
       final historyKey = 'history_$userId';
       
       final historyList = prefs.getStringList(historyKey) ?? [];
@@ -1001,20 +959,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Future<void> _loadUserProfile() async {
     try {
-      final user = Supabase.instance.client.auth.currentUser;
+      final user = await SupabaseService.instance.getCurrentUser();
       if (user != null) {
-        _email = user.email ?? '';
-        final res = await Supabase.instance.client
-            .schema('calmwork')
-            .from('employees')
-            .select('first_name, last_name')
-            .eq('id', user.id)
-            .maybeSingle();
-
-        if (res != null) {
-          _firstName = res['first_name'] ?? '';
-          _lastName = res['last_name'] ?? '';
-        }
+        _email = user['email'] ?? '';
+        _firstName = user['first_name'] ?? '';
+        _lastName = user['last_name'] ?? '';
       }
     } catch (e) {
       debugPrint('Error loading profile: $e');
@@ -1125,9 +1074,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             const SizedBox(height: 12),
                             _buildSettingCard(Icons.help_outline, 'Centro de Ayuda', () {}),
                             const SizedBox(height: 12),
-                            _buildSettingCard(Icons.exit_to_app, 'Cerrar Sesión', () {
-                               Supabase.instance.client.auth.signOut();
-                               Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const LoginScreen()));
+                            _buildSettingCard(Icons.exit_to_app, 'Cerrar Sesión', () async {
+                              await SupabaseService.instance.signOut();
+                              if (context.mounted) {
+                                Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const LoginScreen()));
+                              }
                             }, isDestructive: true),
                           ],
                         ),

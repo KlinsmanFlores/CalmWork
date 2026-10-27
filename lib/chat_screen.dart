@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'local_db_service.dart';
+import 'supabase_service.dart';
 import 'groq_service.dart';
 
 class ChatScreen extends StatefulWidget {
@@ -29,33 +30,20 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> _startSession() async {
     try {
-      final user = Supabase.instance.client.auth.currentUser;
-      final userId = user?.id ?? 'anonymous';
-      
-      String userDept = 'Desconocido';
-      if (userId != 'anonymous') {
-        final userRes = await Supabase.instance.client.schema('calmwork').from('employees').select('department').eq('id', userId).maybeSingle();
-        if (userRes != null && userRes['department'] != null) {
-          userDept = userRes['department'];
-        }
-      }
+      final user = await SupabaseService.instance.getCurrentUser();
+      final userDept = user?['department']?.toString() ?? 'Operaciones';
 
-      final res = await Supabase.instance.client
-          .schema('calmwork')
-          .from('chatbot_sessions')
-          .insert({'status': 'active', 'department': userDept})
-          .select('id')
-          .single();
-      
+      final sessionId = await SupabaseService.instance.createChatSession(userDept);
+
       if (mounted) {
         setState(() {
-          _sessionId = res['id'].toString();
+          _sessionId = sessionId;
         });
       }
-      
+
       // Add initial greeting from bot
       await _addMessage('assistant', 'Hola, soy tu asistente de apoyo confidencial. Estoy aquí para escucharte y apoyarte con cualquier situación laboral o personal que estés atravesando. ¿Cómo te sientes hoy?');
-      
+
     } catch (e) {
       debugPrint('Error starting session: $e');
     }
@@ -71,18 +59,11 @@ class _ChatScreenState extends State<ChatScreen> {
     
     // Save to DB in background
     if (_sessionId != null) {
-      try {
-        await Supabase.instance.client
-            .schema('calmwork')
-            .from('chatbot_messages')
-            .insert({
-              'session_id': _sessionId,
-              'role': role,
-              'content': content,
-            });
-      } catch (e) {
-        debugPrint('Error saving message: $e');
-      }
+      SupabaseService.instance.saveChatMessage(
+        sessionId: _sessionId!,
+        role: role,
+        content: content,
+      ).catchError((e) => debugPrint('Error saving message: $e'));
     }
   }
 
@@ -130,26 +111,15 @@ class _ChatScreenState extends State<ChatScreen> {
       // Analyze conversation
       final history = _messages.map((m) => {'role': m['role']!, 'content': m['content']!}).toList();
       final insights = await _groqService.analyzeConversation(history);
-      
+
       // Save insights
-      await Supabase.instance.client
-          .schema('calmwork')
-          .from('chatbot_insights')
-          .insert({
-            'session_id': _sessionId,
-            'topic': insights['tema'],
-            'urgency': insights['urgencia'],
-          });
-          
-      // Update session status
-      await Supabase.instance.client
-          .schema('calmwork')
-          .from('chatbot_sessions')
-          .update({'status': 'closed'})
-          .eq('id', _sessionId as Object);
-          
+      await SupabaseService.instance.saveChatInsights(
+        sessionId: _sessionId!,
+        insights: insights,
+      );
+
       _isSessionClosed = true;
-          
+
     } catch (e) {
       debugPrint('Error saving insights: $e');
     }
@@ -172,18 +142,13 @@ class _ChatScreenState extends State<ChatScreen> {
     _scrollController.dispose();
     _messageController.dispose();
     if (_sessionId != null && _messages.length > 1 && !_isSessionClosed) {
-      // Fire and forget analysis if user leaves the tab
       final history = List<Map<String, String>>.from(_messages);
-      final currentSessionId = _sessionId;
+      final currentSessionId = _sessionId!;
       _groqService.analyzeConversation(history).then((insights) {
-        Supabase.instance.client.schema('calmwork').from('chatbot_insights').insert({
-          'session_id': currentSessionId,
-          'topic_detected': insights['tema'],
-          'ai_summary': insights['resumen'], // Guardamos el resumen generado
-          'urgency_level': insights['urgencia'],
-          'recommendations': insights['recomendaciones'], // Guardamos el array como JSONB en Supabase
-        });
-        Supabase.instance.client.schema('calmwork').from('chatbot_sessions').update({'status': 'closed'}).eq('id', currentSessionId as Object);
+        SupabaseService.instance.saveChatInsights(
+          sessionId: currentSessionId,
+          insights: insights,
+        );
       }).catchError((e) => debugPrint('Error background insights: $e'));
     }
     super.dispose();
